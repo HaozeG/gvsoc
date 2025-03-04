@@ -40,12 +40,12 @@ int main(){
     uint32_t in_token_offset =            0;
     uint32_t gate_weights_offset =        in_token_offset + n_token * dim * 2;
     uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * 2;
-    uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * 2;
-    uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * 2;
-    uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * 2;
-    uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * 2;
-    uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * inter_dim * 2;
-    uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * 2;
+    uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * 2;
+    uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * 2;
+    uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * 2;
+    uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * 2;
+    uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * 2;
+    uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * 2;
     uint32_t golden_out_offset =          actual_out_offset + n_token * dim * 2;
 
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
@@ -53,6 +53,12 @@ int main(){
         printf("[Check Preload] Addresses\n");
         printf("in_token: 0x%x\n", hbm_addr(in_token_offset));
         printf("gate_weight: 0x%x\n", hbm_addr(gate_weights_offset));
+        printf("expert_w1_weight: 0x%x\n", hbm_addr(expert_w1_weights_offset));
+        printf("expert_w1_bias: 0x%x\n", hbm_addr(expert_w1_bias_offset));
+        printf("expert_w2_weight: 0x%x\n", hbm_addr(expert_w2_weights_offset));
+        printf("expert_w2_bias: 0x%x\n", hbm_addr(expert_w2_bias_offset));
+        printf("expert_w3_weight: 0x%x\n", hbm_addr(expert_w3_weights_offset));
+        printf("expert_w3_bias: 0x%x\n", hbm_addr(expert_w3_bias_offset));
         printf("actual: 0x%x\n", hbm_addr(actual_out_offset));
         printf("golden: 0x%x\n", hbm_addr(golden_out_offset));
         printf("n_token: %x\n", n_token);
@@ -84,12 +90,48 @@ int main(){
             }
             printf("\n");
         }
+        printf("expert_w1_weights:\n");
+        for (int i = 0; i < n_token; i++) {
+            printf("    ");
+            // for (int j = 0; j < dim; j++) {
+            for (int j = 0; j < 16; j++) {
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_weights_offset)))[j + i * dim]);
+            }
+            printf("\n");
+        }
+        printf("expert_w1_bias:\n");
+        for (int i = 0; i < n_token; i++) {
+            printf("    ");
+            // for (int j = 0; j < dim; j++) {
+            for (int j = 0; j < 16; j++) {
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_bias_offset)))[j + i * dim]);
+            }
+            printf("\n");
+        }
+        printf("expert_w3_weights:\n");
+        for (int i = 0; i < n_token; i++) {
+            printf("    ");
+            // for (int j = 0; j < dim; j++) {
+            for (int j = 0; j < 16; j++) {
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * dim]);
+            }
+            printf("\n");
+        }
         printf("actual_out:\n");
         for (int i = 0; i < n_token; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 16; j++) {
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+            }
+            printf("\n");
+        }
+        printf("golden_out:\n");
+        for (int i = 0; i < n_token; i++) {
+            printf("    ");
+            // for (int j = 0; j < dim; j++) {
+            for (int j = 0; j < 16; j++) {
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
             }
             printf("\n");
         }
