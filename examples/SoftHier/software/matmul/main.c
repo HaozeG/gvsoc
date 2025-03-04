@@ -5,6 +5,7 @@
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
 #include "moe.h"
+// #define PRINT_DEBUG 0
 
 int main();
 int main(){
@@ -25,7 +26,7 @@ int main(){
      * 
      * Gate
      *   weight: [dim, n_routed_experts]
-     * Expert
+     * Expert [n_routed_experts + n_shared_experts, ...]
      *   w1
      *     weight: [dim, inter_dim]
      *     bias: [1, inter_dim]
@@ -48,6 +49,7 @@ int main(){
     uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * 2;
     uint32_t golden_out_offset =          actual_out_offset + n_token * dim * 2;
 
+#ifdef PRINT_DEBUG
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
         printf("[Check Preload] Addresses\n");
@@ -134,30 +136,9 @@ int main(){
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
             }
             printf("\n");
-        }
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(in_token_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(gate_weights_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w1_weights_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w1_bias_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w2_weights_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w2_bias_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w3_weights_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(expert_w3_bias_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(actual_out_addr)))[0]);
-        // printf("0x%04x\n", ((uint16_t *)(hbm_addr(golden_out_addr)))[0]);
-        
+        }        
     }
-
-    uint32_t L1_offset = 0;
-    if (flex_is_dm_core() && (0 == flex_get_cluster_id())) {
-        // volatile uint16_t * local_ptr = (volatile uint16_t *)local(L1_offset);
-        // flex_dma_async_1d(local(L1_offset), hbm_addr(in_token_addr), 4);
-        // flex_dma_async_wait_all();
-        // printf("0x%04x\n", local_ptr[1]);
-        // flex_dma_async_1d(local(L1_offset), hbm_addr(actual_out_addr), 4);
-        // flex_dma_async_wait_all();
-        // printf("0x%04x\n", local_ptr[1]);
-    }
+#endif
 
     uint32_t eoc_val = 0;
     flex_global_barrier_xy();
@@ -171,44 +152,22 @@ int main(){
         flex_timer_end();
     }
     
+#ifdef PRINT_DEBUG
     // get the output
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
-        printf("[Check Results] with first 8 elements of each row of the output\n");
+        printf("[Check Results]\n");
+        printf("actual_out:\n");
         for (int i = 0; i < n_token; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 8; j++) {
+            for (int j = 0; j < 16; j++) {
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
             }
             printf("\n");
         }
-        // printf("[Check Results] First 3 Row Elements:\n");
-        // for (auto C_i = 0; C_i < 3; C_i++) {
-        //     for (auto C_j = 0; C_j < M; C_j++) {
-        //         show_progress_animated(C_j + C_i * M,M*3);
-                // if (((uint16_t *)(hbm_addr(C)))[C_j + C_i * M] != ((uint16_t *)(hbm_addr(G)))[C_j + C_i * M])
-        //         {
-        //             eoc_val = 1;
-        //             printf("\n[Check Error] at (%0d, %0d): expected: 0x%x, but got: 0x%x\n",
-        //                 C_i,
-        //                 C_j,
-        //                 ((uint16_t *)(hbm_addr(G)))[C_j + C_i * M],
-        //                 ((uint16_t *)(hbm_addr(C)))[C_j + C_i * M]);
-        //             break;
-        //         }
-        //     }
-        //     if (eoc_val == 1)
-        //     {
-        //         break;
-        //     }
-        // }
-
-        // if (eoc_val == 0)
-        // {
-        //     printf("[Check Passed] GEMM is Numerically Correct\n");
-        // }
     }
+#endif
     flex_global_barrier_xy();
     flex_eoc(eoc_val);
     return 0;
