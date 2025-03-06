@@ -38,7 +38,7 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
     flex_global_barrier_xy();
     
     uint32_t cluster_id = flex_get_cluster_id();
-    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id();  // reverse the core id to make the dm core the first core in the cluster
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
     uint32_t i_row = cluster_id * ARCH_NUM_CORE_PER_CLUSTER + core_id;
     uint16_t transfer_rows;
     uint16_t max, max_idx;
@@ -49,9 +49,14 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
     local_in = local_out_indicies + ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
     local_in += core_id * n_routed_expert * DATA_SIZE_BYTES;
 
+    // if (cluster_id == 0) {
+    //     printf("[TOP_K] i_row: %d\n", i_row);
+    // }
     while (i_row < n_token) {
         // one dma transfer per cluster
         transfer_rows = fmin(ARCH_NUM_CORE_PER_CLUSTER, n_token - i_row);
+        // printf("[TOP_K] i_row: %d, transfer_rows: %d\n", i_row, transfer_rows);
+
         if (flex_is_dm_core()) {
             flex_dma_async_1d(local(local_in), hbm_addr(in_addr + i_row * n_routed_expert * DATA_SIZE_BYTES), transfer_rows * n_routed_expert * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
@@ -64,10 +69,12 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
             max_idx = i;
             for (int j = i + 1; j < n_routed_expert; j++) {
                 if (asm_fp16_compare((const fp16 *)local(local_in + j * DATA_SIZE_BYTES), (const fp16 *)&max) == 1) {
-                    max = local(local_in + j * DATA_SIZE_BYTES);
+                    max = ((uint16_t *)local(local_in))[j];
                     max_idx = j;
+                    // printf("[TOP_K] update max: 0x%04x, idx: %d\n", max, max_idx);
                 }
             }
+            printf("[TOP_K] top %d: 0x%04x, idx: %d\n", i, max, max_idx);
             // Keep the top k values at top k positions of input matrix
             uint16_t temp;
             temp = ((uint16_t *)local(local_in))[i];
@@ -81,6 +88,7 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
         flex_intra_cluster_sync();
         // transfer the top k values and indices to HBM
         if (flex_is_dm_core()) {
+            // flex_dma_async_1d(hbm_addr(in_addr + i_row * k * DATA_SIZE_BYTES), local(local_in), transfer_rows * n_routed_expert * DATA_SIZE_BYTES);
             flex_dma_async_1d(hbm_addr(out_value_addr + i_row * k * DATA_SIZE_BYTES), local(local_out_value), transfer_rows * k * DATA_SIZE_BYTES);
             flex_dma_async_1d(hbm_addr(out_index_addr + i_row * k * DATA_SIZE_BYTES), local(local_out_indicies), transfer_rows * k * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
@@ -215,7 +223,8 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                     // matmul_fp16((fp16 *)_in_local_sum, (fp16 *)_in_local_sum, (fp16 *)_in_local_a, (fp16 *)_in_local_b, m_tile, k_tile, n_tile);
 
                 }
-                flex_intra_cluster_sync();
+                // TODO: consider double buffering in_local_a and in_local_b to remove this line safely
+                // flex_intra_cluster_sync();
 
                 // if(flex_is_first_core()) {
                     // printf("[ACCUMULATOR]\n    C: 0x%x\n", ((uint16_t *)local(accumulator))[1]);
@@ -262,7 +271,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // matmul_fp16((fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(in_token_addr), (fp16 *)hbm_addr(gate_weights_addr), n_token, dim, n_routed_experts);
     top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
 
-    return;
+    // return;
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     int i = 0;
@@ -286,8 +295,8 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
 
         i++;
     }
+    return;
         
-    /**
     // Shared experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
@@ -297,7 +306,9 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
 
         gemm(actual_out_addr, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
     }
-    **/
+
+    // Add shared experts output with weighted routed experts output
+    
     flex_global_barrier_xy();
 }
 
