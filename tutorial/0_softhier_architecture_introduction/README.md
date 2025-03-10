@@ -150,6 +150,21 @@ We provide several macros in `soft_hier/flex_cluster_sdk/runtime/include/flex_ru
 - `remote_xy(x, y, offset)`
 - `remote_pos(pos, offset)`
 
+
+### Cluster Local and Global Synchronization 🚀
+
+We provide several APIs for local and global synchronizations in `soft_hier/flex_cluster_sdk/runtime/include/flex_runtime.h`
+#### Intra-Cluster Synchronization  
+To synchronize cores within a **single cluster**, use:  `flex_intra_cluster_sync()` .
+
+#### Global Cluster Synchronization  
+For synchronizing **all clusters**, we use an **XY cluster synchronization strategy**. The following APIs are provided:  
+
+- `flex_barrier_xy_init()`. Initialize Global Barrier, Call **once at the beginning** of the program. No further calls are needed.  
+- `flex_global_barrier_xy()` : Synchronizes all clusters using an **XY strategy** with **semi-hardware support** (recommended).  
+- `flex_global_barrier_xy_polling()`: Synchronizes all clusters using an **XY strategy** with a **pure software-based polling approach**.  
+
+
 ### HBM Addressing 💾
 
 For easier programming, the HBM address mapping is decoupled from the actual HBM placement. The address mapping is only related to the mesh shape.
