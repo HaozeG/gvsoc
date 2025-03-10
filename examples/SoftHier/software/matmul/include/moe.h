@@ -11,14 +11,17 @@
 // use float16 as data type
 #define DATA_SIZE_BYTES 2
 // Parameters for GEMM
+// TILE_WIDTH * num_cluster_x = BLOCK_WIDTH
 #define BLOCK_WIDTH 256
 #define TILE_WIDTH 64
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
+// Parameter for element-wise functions
+#define ELEMENT_WISE_TILE_WIDTH 4
 
 
 void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr);
 void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t dim, const uint32_t n_token);
-void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr);
 
 /**
@@ -74,7 +77,7 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
                     // printf("[TOP_K] update max: 0x%04x, idx: %d\n", max, max_idx);
                 }
             }
-            printf("[TOP_K] top %d: 0x%04x, idx: %d\n", i, max, max_idx);
+            // printf("[TOP_K] top %d: 0x%04x, idx: %d\n", i, max, max_idx);
             // Keep the top k values at top k positions of input matrix
             uint16_t temp;
             temp = ((uint16_t *)local(local_in))[i];
@@ -95,6 +98,58 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
         }
         i_row += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER;
     }
+    flex_global_barrier_xy();
+}
+
+/**
+ * @brief element-wise silu activation function
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ */
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token) {
+    if (0 == dim || 0 == n_token) {
+        return;
+    }
+    flex_global_barrier_xy();
+    uint32_t cluster_id = flex_get_cluster_id();
+    uint32_t core_id  = flex_get_core_id();
+    
+    uint32_t block_id = cluster_id * ARCH_NUM_CORE_PER_CLUSTER + core_id;
+
+    uint32_t local_in, local_x;
+    local_in = 0 + block_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+    local_x = 0 + ARCH_NUM_CLUSTER * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES + block_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+
+    while (block_id < n_token * dim) {
+        if (flex_is_dm_core()) {
+            flex_dma_async_1d(local(local_in), hbm_addr(in_addr + block_id * dim * DATA_SIZE_BYTES), dim * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        flex_intra_cluster_sync();
+
+        for (int i = 0; i < ELEMENT_WISE_TILE_WIDTH; i++) {
+            if (flex_is_first_core()) {
+                // printf("[SILU] dim: %d, i: %d\n", dim, i);
+                ((uint16_t *)local(local_x))[i] = ((uint16_t *)local(local_in))[i];
+                asm_fp16_sigmoid((const fp16 *)local(local_in + i * DATA_SIZE_BYTES), (fp16 *)local(local_in + i * DATA_SIZE_BYTES));
+                fp16_fma((const fp16 *)local(local_x + i * DATA_SIZE_BYTES), (const fp16 *)local(local_in + i * DATA_SIZE_BYTES), (const fp16 *)local(local_in + i * DATA_SIZE_BYTES));
+            }
+        }
+        flex_intra_cluster_sync();
+
+        if (flex_is_dm_core()) {
+            flex_dma_async_1d(hbm_addr(out_addr + block_id * dim * DATA_SIZE_BYTES), local(local_in), dim * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        block_id += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER;
+    }
+
+    // asm_fp16_sigmoid();
+    // fp16_fma();
+
     flex_global_barrier_xy();
 }
 
@@ -224,7 +279,7 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
 
                 }
                 // TODO: consider double buffering in_local_a and in_local_b to remove this line safely
-                // flex_intra_cluster_sync();
+                flex_intra_cluster_sync();
 
                 // if(flex_is_first_core()) {
                     // printf("[ACCUMULATOR]\n    C: 0x%x\n", ((uint16_t *)local(accumulator))[1]);
@@ -262,7 +317,7 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     flex_global_barrier_xy();
     uint32_t top_k_weights_addr, top_k_indices_addr;
-    // TODO: 重新设计一下TCDM和HBM中的数据划分
+    // TODO: 重新设计一下TCDM和HBM中的数据划分，现在乱写的
     top_k_weights_addr = actual_out_addr + n_token * dim * DATA_SIZE_BYTES;
     top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
 
@@ -270,8 +325,10 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     gemm(in_token_addr, gate_weights_addr, actual_out_addr, dim, n_token, n_routed_experts, zomem(0));
     // matmul_fp16((fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(in_token_addr), (fp16 *)hbm_addr(gate_weights_addr), n_token, dim, n_routed_experts);
     top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
+    // sigmoid
+    // normalize
 
-    // return;
+    return;
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     int i = 0;
@@ -281,6 +338,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         // w1.forward(x)
         gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // silu(w1.forward(x))
+        silu(actual_out_addr, actual_out_addr, inter_dim, n_token);
         // asm_fp16_sigmoid((const fp16 *)hbm_addr(actual_out_addr), (const fp16 *)hbm_addr(actual_out_addr));
 
         // w3.forward(x)
