@@ -221,13 +221,16 @@ class ClusterUnit(gvsoc.systree.Component):
         if xfrep:
             fpu_sequencers = []
         for core_id in range(0, arch.nb_core):
+            # cores.append(iss.Snitch(self, f'pe{core_id}', isa='rv32imfdva',
+            #     fetch_enable=arch.auto_fetch, boot_addr=boot_addr,
+            #     core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu))
             cores.append(iss.Snitch(self, f'pe{core_id}', isa='rv32imfdva',
                 fetch_enable=arch.auto_fetch, boot_addr=boot_addr,
-                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu))
+                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0))
 
             fp_cores.append(iss.Snitch_fp_ss(self, f'fp_ss{core_id}', isa='rv32imfdva',
                 fetch_enable=arch.auto_fetch, boot_addr=boot_addr,
-                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu))
+                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0))
             if xfrep:
                 fpu_sequencers.append(Sequencer(self, f'fpu_sequencer{core_id}', latency=0))
 
