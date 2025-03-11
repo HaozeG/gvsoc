@@ -5,7 +5,7 @@
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
 #include "moe.h"
-#define PRINT_DEBUG
+// #define PRINT_DEBUG
 
 #define HBM_NODE_SIZE 0x04000000 // 64MB
 #define NUM_CLUSTER_X 4

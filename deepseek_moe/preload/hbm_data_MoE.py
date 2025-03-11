@@ -119,7 +119,6 @@ if __name__ == '__main__':
     expert_w1_bias_address = hbm_ch4_addr                                                   # Expert Bias (9KB)
     expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes                           # Expert Bias (18KB)  
     expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # Expert Bias (9KB)
-    # gate_weights_address = hbm_ch5_addr
     actual_out_address = hbm_ch5_addr                                                       # Output (2KB)
     golden_address = hbm_ch5_addr + actual_out.nbytes                                       # Golden Output (2KB)
     ### END HBM data placement version 1 ###
