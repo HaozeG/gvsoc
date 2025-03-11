@@ -96,7 +96,6 @@ if __name__ == '__main__':
     # print args in hex
     ### END HBM data placement version 0 ###
     
-    ### START HBM data placement version 1 ###
     # Base ddresses of HBM channels
     hbm_ch0_addr = hbm_base_address
     hbm_ch1_addr = hbm_base_address + HBM_NODE_ADDR_SPACE
@@ -104,35 +103,59 @@ if __name__ == '__main__':
     hbm_ch3_addr = hbm_base_address + HBM_NODE_ADDR_SPACE * 3
     
     hbm_south_base = hbm_base_address + HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X)
+    
     hbm_ch4_addr = hbm_south_base
     hbm_ch5_addr = hbm_south_base + HBM_NODE_ADDR_SPACE
     hbm_ch6_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 2
     hbm_ch7_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 3
     
+    ### START HBM data placement version 1 ###
     # Map datas to HBM channels
-    in_token_address = hbm_ch0_addr
-    expert_w1_weights_address = hbm_ch1_addr
-    expert_w2_weights_address = hbm_ch2_addr
-    expert_w3_weights_address = hbm_ch3_addr
-    expert_w1_bias_address = hbm_ch4_addr
-    expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes
-    expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes
-    gate_weights_address = hbm_ch5_addr
-    actual_out_address = hbm_ch6_addr
-    golden_address = hbm_ch7_addr
+    in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
+    gate_weights_address = hbm_ch0_addr + in_token.nbytes                                   # Gate Weights (16KB)
+    expert_w1_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
+    expert_w2_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
+    expert_w3_weights_address = hbm_ch3_addr                                                # Expert Weights (9MB)
+    expert_w1_bias_address = hbm_ch4_addr                                                   # Expert Bias (9KB)
+    expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes                           # Expert Bias (18KB)  
+    expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # Expert Bias (9KB)
+    # gate_weights_address = hbm_ch5_addr
+    actual_out_address = hbm_ch5_addr                                                       # Output (2KB)
+    golden_address = hbm_ch5_addr + actual_out.nbytes                                       # Golden Output (2KB)
     ### END HBM data placement version 1 ###
     
+    ### START HBM data placement version 2 ###
+    # in_token_address = hbm_ch0_addr  # Token Data (2KB)
+    # gate_weights_address = hbm_ch0_addr + in_token.nbytes  # Gate Weights (16KB)
+
+    # # Split weight matrices across two channels for parallel access
+    # expert_w1_weights_address_1 = hbm_ch1_addr  # First 4.5MB of W1
+    # expert_w1_weights_address_2 = hbm_ch2_addr  # Second 4.5MB of W1
+
+    # expert_w2_weights_address_1 = hbm_ch2_addr + 4.5 * 1024 * 1024  # First 4.5MB of W2
+    # expert_w2_weights_address_2 = hbm_ch3_addr  # Second 4.5MB of W2
+
+    # expert_w3_weights_address_1 = hbm_ch3_addr + 4.5 * 1024 * 1024  # First 4.5MB of W3
+    # expert_w3_weights_address_2 = hbm_ch4_addr  # Second 4.5MB of W3
+
+    # expert_w1_bias_address = hbm_ch5_addr  # W1 Bias (9KB)
+    # expert_w2_bias_address = hbm_ch5_addr + expert_w1_bias.nbytes  # W2 Bias (18KB)
+    # expert_w3_bias_address = hbm_ch5_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # W3 Bias (9KB)
+
+    # actual_out_address = hbm_ch6_addr  # Output (2KB)
+    # golden_address = hbm_ch6_addr + actual_out.nbytes  # Golden Output (2KB)
+    
     # Print all addresses
-    print("in_token_address: ", hex(in_token_address))
-    print("gate_weights_address: ", hex(gate_weights_address))
-    print("expert_w1_weights_address: ", hex(expert_w1_weights_address))
-    print("expert_w2_weights_address: ", hex(expert_w2_weights_address))
-    print("expert_w3_weights_address: ", hex(expert_w3_weights_address))
-    print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
-    print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
-    print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
-    print("actual_out_address: ", hex(actual_out_address))
-    print("golden_address: ", hex(golden_address))
+    # print("in_token_address: ", hex(in_token_address))
+    # print("gate_weights_address: ", hex(gate_weights_address))
+    # print("expert_w1_weights_address: ", hex(expert_w1_weights_address))
+    # print("expert_w2_weights_address: ", hex(expert_w2_weights_address))
+    # print("expert_w3_weights_address: ", hex(expert_w3_weights_address))
+    # print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
+    # print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
+    # print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
+    # print("actual_out_address: ", hex(actual_out_address))
+    # print("golden_address: ", hex(golden_address))
         
     # Print data sizes
     # print("token size: ", in_token.nbytes)
@@ -148,8 +171,26 @@ if __name__ == '__main__':
     # print("total size: ", in_token.nbytes + gate_weights.nbytes + expert_w1_weights.nbytes + expert_w1_bias.nbytes + expert_w2_weights.nbytes + experts_w2_bias.nbytes + expert_w3_weights.nbytes + expert_w3_bias.nbytes + actual_out.nbytes + golden.nbytes)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
+
     # pld.make_preload_elf("hbm_data_MoE.elf", [in_token, gate_weights, expert_w1_weights, expert_w1_bias, expert_w2_weights, experts_w2_bias, expert_w3_weights, expert_w3_bias, actual_out, golden], addr)
+
     pld.make_preload_elf("hbm_data_MoE.elf", 
                         [in_token, gate_weights, expert_w1_weights, expert_w1_bias, expert_w2_weights, experts_w2_bias, expert_w3_weights, expert_w3_bias, actual_out, golden],
                         [in_token_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, 
                          expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address])
+    
+    # pld.make_preload_elf("hbm_data_MoE.elf", 
+    #                   [in_token, gate_weights, expert_w1_weights[:4.5 * 1024 * 1024], 
+    #                    expert_w1_weights[4.5 * 1024 * 1024:], expert_w1_bias, 
+    #                    expert_w2_weights[:4.5 * 1024 * 1024], expert_w2_weights[4.5 * 1024 * 1024:], 
+    #                    experts_w2_bias, expert_w3_weights[:4.5 * 1024 * 1024], 
+    #                    expert_w3_weights[4.5 * 1024 * 1024:], expert_w3_bias, 
+    #                    actual_out, golden],
+    #                   [in_token_address, gate_weights_address, expert_w1_weights_address_1, 
+    #                    expert_w1_weights_address_2, expert_w1_bias_address, 
+    #                    expert_w2_weights_address_1, expert_w2_weights_address_2, 
+    #                    expert_w2_bias_address, expert_w3_weights_address_1, 
+    #                    expert_w3_weights_address_2, expert_w3_bias_address, 
+    #                    actual_out_address, golden_address])
+
+
