@@ -5,7 +5,11 @@
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
 #include "moe.h"
-// #define PRINT_DEBUG 0
+#define PRINT_DEBUG
+
+#define HBM_NODE_SIZE 0x04000000 // 64MB
+#define NUM_CLUSTER_X 4
+#define NUM_CLUSTER_Y 4
 
 int main();
 int main(){
@@ -38,16 +42,36 @@ int main(){
      *     bias: [1, inter_dim]
      */
     // Read the value preloaded into HBM
-    uint32_t in_token_offset =            0;
-    uint32_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
-    uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
-    uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
-    uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t in_token_offset =            0;
+    // uint32_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    // uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    // uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+
+    /** 
+     * HBM data placement version 1
+     */
+    uint32_t in_token_offset = 0;
+    uint32_t expert_w1_weights_offset = in_token_offset + HBM_NODE_SIZE; //channel 2
+    uint32_t expert_w2_weights_offset = in_token_offset + HBM_NODE_SIZE * 2; // channel 3
+    uint32_t expert_w3_weights_offset = in_token_offset + HBM_NODE_SIZE * 3; // channel 4
+
+    uint32_t hbm_south_offset = in_token_offset + HBM_NODE_SIZE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);   // channel 5
+
+    // All bias matrices are placed in the same HBM channel (channel 5)
+    uint32_t expert_w1_bias_offset = hbm_south_offset; // channel 5
+    uint32_t expert_w2_bias_offset = expert_w1_bias_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint32_t expert_w3_bias_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+
+    uint32_t gate_weights_offset = hbm_south_offset + HBM_NODE_SIZE; // channel 6
+    uint32_t actual_out_offset = hbm_south_offset + HBM_NODE_SIZE * 2; // channel 7
+    uint32_t golden_out_offset = hbm_south_offset + HBM_NODE_SIZE * 3; // channel 8
+
 
 #ifdef PRINT_DEBUG
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
@@ -153,7 +177,12 @@ int main(){
         printf("[Start MoE Computation]\n");
         flex_timer_start();
     }
-    compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+    compute_moe(in_token_offset, n_token, dim, inter_dim, 
+                n_routed_experts, n_shared_experts, n_activated_experts, 
+                gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, 
+                expert_w2_weights_offset, expert_w2_bias_offset, 
+                expert_w3_weights_offset, expert_w3_bias_offset, 
+                actual_out_offset);
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         flex_timer_end();
