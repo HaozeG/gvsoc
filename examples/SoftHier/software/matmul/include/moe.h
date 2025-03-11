@@ -16,12 +16,13 @@
 #define TILE_WIDTH 64
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
-#define ELEMENT_WISE_TILE_WIDTH 4
+#define ELEMENT_WISE_TILE_WIDTH 2
 
 
 void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr);
 void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t dim, const uint32_t n_token);
 void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr);
 
 /**
@@ -115,40 +116,93 @@ void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, c
     }
     flex_global_barrier_xy();
     uint32_t cluster_id = flex_get_cluster_id();
-    uint32_t core_id  = flex_get_core_id();
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
     
     uint32_t block_id = cluster_id * ARCH_NUM_CORE_PER_CLUSTER + core_id;
 
     uint32_t local_in, local_x;
-    local_in = 0 + block_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
-    local_x = 0 + ARCH_NUM_CLUSTER * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES + block_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+    local_in = 0 + core_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+    local_x = 0 + ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES + core_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
 
-    while (block_id < n_token * dim) {
+    uint32_t i_element = block_id * ELEMENT_WISE_TILE_WIDTH;
+    uint32_t n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element);
+    uint32_t n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+    while (i_element < n_token * dim) {
+        n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element);
         if (flex_is_dm_core()) {
-            flex_dma_async_1d(local(local_in), hbm_addr(in_addr + block_id * dim * DATA_SIZE_BYTES), dim * DATA_SIZE_BYTES);
+            // printf("[SILU] block_id: %d, i_element: %d, n_element_per_cluster: %d\n", block_id, i_element, n_element_per_cluster);
+            flex_dma_async_1d(local(local_in), hbm_addr(in_addr + i_element * DATA_SIZE_BYTES), n_element_per_cluster * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
         }
         flex_intra_cluster_sync();
 
-        for (int i = 0; i < ELEMENT_WISE_TILE_WIDTH; i++) {
-            if (flex_is_first_core()) {
-                // printf("[SILU] dim: %d, i: %d\n", dim, i);
-                ((uint16_t *)local(local_x))[i] = ((uint16_t *)local(local_in))[i];
-                asm_fp16_sigmoid((const fp16 *)local(local_in + i * DATA_SIZE_BYTES), (fp16 *)local(local_in + i * DATA_SIZE_BYTES));
-                fp16_fma((const fp16 *)local(local_x + i * DATA_SIZE_BYTES), (const fp16 *)local(local_in + i * DATA_SIZE_BYTES), (const fp16 *)local(local_in + i * DATA_SIZE_BYTES));
-            }
+        n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+        for (int i = 0; i < n_element_per_core; i++) {
+            ((fp16 *)(local(local_x)))[i + core_id * ELEMENT_WISE_TILE_WIDTH] = ((fp16 *)(local(local_in)))[i + core_id * ELEMENT_WISE_TILE_WIDTH];
+            // printf("0x%04x\n", ((fp16 *)(local(local_x)))[i + core_id * ELEMENT_WISE_TILE_WIDTH]);
+            asm_fp16_sigmoid((const fp16 *)local(local_in + (i + core_id * ELEMENT_WISE_TILE_WIDTH) * DATA_SIZE_BYTES), (fp16 *)local(local_in + (i + core_id * ELEMENT_WISE_TILE_WIDTH) * DATA_SIZE_BYTES));
+            // printf("local_in: 0x%04x\n", ((fp16 *)(local(local_in)))[i + core_id * ELEMENT_WISE_TILE_WIDTH]);
+            // printf("local_x: 0x%04x\n", ((fp16 *)(local(local_x)))[i + core_id * ELEMENT_WISE_TILE_WIDTH]);
+            ((fp16 *)(local(local_in)))[i + core_id * ELEMENT_WISE_TILE_WIDTH] = fp16_fma(((fp16 *)(local(local_x)))[i + core_id * ELEMENT_WISE_TILE_WIDTH], ((fp16 *)(local(local_in)))[i + core_id * ELEMENT_WISE_TILE_WIDTH], (fp16)0);
+            // printf("local_in: 0x%04x\n", ((fp16 *)(local(local_in)))[i + core_id * ELEMENT_WISE_TILE_WIDTH]);
         }
         flex_intra_cluster_sync();
 
         if (flex_is_dm_core()) {
-            flex_dma_async_1d(hbm_addr(out_addr + block_id * dim * DATA_SIZE_BYTES), local(local_in), dim * DATA_SIZE_BYTES);
+            flex_dma_async_1d(hbm_addr(out_addr + i_element * DATA_SIZE_BYTES), local(local_in), n_element_per_cluster * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
         }
-        block_id += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER;
+        i_element += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
     }
 
-    // asm_fp16_sigmoid();
-    // fp16_fma();
+    flex_global_barrier_xy();
+}
+
+/**
+ * @brief element-wise sigmoid function
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ */
+void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token) {
+    if (0 == dim || 0 == n_token) {
+        return;
+    }
+    flex_global_barrier_xy();
+    uint32_t cluster_id = flex_get_cluster_id();
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    
+    uint32_t block_id = cluster_id * ARCH_NUM_CORE_PER_CLUSTER + core_id;
+
+    uint32_t local_in;
+    local_in = 0 + core_id * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+
+    uint32_t i_element = block_id * ELEMENT_WISE_TILE_WIDTH;
+    uint32_t n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element);
+    uint32_t n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+    while (i_element < n_token * dim) {
+        n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element);
+        if (flex_is_dm_core()) {
+            // printf("[SILU] block_id: %d, i_element: %d, n_element_per_cluster: %d\n", block_id, i_element, n_element_per_cluster);
+            flex_dma_async_1d(local(local_in), hbm_addr(in_addr + i_element * DATA_SIZE_BYTES), n_element_per_cluster * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        flex_intra_cluster_sync();
+
+        n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+        for (int i = 0; i < n_element_per_core; i++) {
+            asm_fp16_sigmoid((const fp16 *)local(local_in + (i + core_id * ELEMENT_WISE_TILE_WIDTH) * DATA_SIZE_BYTES), (fp16 *)local(local_in + (i + core_id * ELEMENT_WISE_TILE_WIDTH) * DATA_SIZE_BYTES));
+        }
+        flex_intra_cluster_sync();
+
+        if (flex_is_dm_core()) {
+            flex_dma_async_1d(hbm_addr(out_addr + i_element * DATA_SIZE_BYTES), local(local_in), n_element_per_cluster * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        i_element += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+    }
 
     flex_global_barrier_xy();
 }
@@ -279,7 +333,7 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
 
                 }
                 // TODO: consider double buffering in_local_a and in_local_b to remove this line safely
-                flex_intra_cluster_sync();
+                // flex_intra_cluster_sync();
 
                 // if(flex_is_first_core()) {
                     // printf("[ACCUMULATOR]\n    C: 0x%x\n", ((uint16_t *)local(accumulator))[1]);
@@ -324,11 +378,13 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // Gate 
     gemm(in_token_addr, gate_weights_addr, actual_out_addr, dim, n_token, n_routed_experts, zomem(0));
     // matmul_fp16((fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(actual_out_addr), (fp16 *)hbm_addr(in_token_addr), (fp16 *)hbm_addr(gate_weights_addr), n_token, dim, n_routed_experts);
-    top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
+    // top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
+    top_k(actual_out_addr, actual_out_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
     // sigmoid
+    silu(actual_out_addr, actual_out_addr, n_activated_experts, 64);
+    return;
     // normalize
 
-    return;
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     int i = 0;
@@ -338,7 +394,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         // w1.forward(x)
         gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // silu(w1.forward(x))
-        silu(actual_out_addr, actual_out_addr, inter_dim, n_token);
+        // silu(actual_out_addr, actual_out_addr, inter_dim, n_token);
         // asm_fp16_sigmoid((const fp16 *)hbm_addr(actual_out_addr), (const fp16 *)hbm_addr(actual_out_addr));
 
         // w3.forward(x)
