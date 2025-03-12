@@ -11,6 +11,9 @@ sw_moe:
 hs_moe_pfto: 
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ hs runv pfto
 
+sw_moe_pfto:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ sw runv pfto
+
 # Full run with preload
 hs_pld: hbm_pld
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ hs run

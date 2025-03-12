@@ -110,40 +110,50 @@ if __name__ == '__main__':
     hbm_ch7_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 3
     
     ### START HBM data placement version 1 ###
-    # Map datas to HBM channels
+    # Map data to HBM regions
     # Channel 3 and 7 are left unused due to their distance from cluster 0
-    in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
-    gate_weights_address = hbm_ch0_addr + in_token.nbytes                                   # Gate Weights (16KB)
-    expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
-    expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
-    expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
-    expert_w1_bias_address = hbm_ch4_addr                                                   # Expert Bias (9KB)
-    expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes                           # Expert Bias (18KB)  
-    expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # Expert Bias (9KB)
-    actual_out_address = hbm_ch6_addr                                                       # Output (2KB)
-    golden_address = hbm_ch6_addr + actual_out.nbytes                                       # Golden Output (2KB)
+    # in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
+    # gate_weights_address = hbm_ch0_addr + in_token.nbytes                                   # Gate Weights (16KB)
+    # expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
+    # expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
+    # expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
+    # expert_w1_bias_address = hbm_ch4_addr                                                   # Expert Bias (9KB)
+    # expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes                           # Expert Bias (18KB)  
+    # expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # Expert Bias (9KB)
+    # actual_out_address = hbm_ch6_addr                                                       # Output (2KB)
+    # golden_address = hbm_ch6_addr + actual_out.nbytes                                       # Golden Output (2KB)
     ### END HBM data placement version 1 ###
     
     ### START HBM data placement version 2 ###
-    # in_token_address = hbm_ch0_addr  # Token Data (2KB)
-    # gate_weights_address = hbm_ch0_addr + in_token.nbytes  # Gate Weights (16KB)
+    # Map data to HBM regions
+    in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
+    gate_weights_address = hbm_ch6_addr                                                     # Gate Weights (16KB)
+    
+    expert_w1_bias_address = gate_weights_address + gate_weights.nbytes                     # Expert Bias (9KB)
+    expert_w2_bias_address = hbm_ch4_addr                                                   # Expert Bias (18KB)
+    expert_w3_bias_address = expert_w1_bias_address + expert_w1_bias.nbytes                 # Expert Bias (9KB)
+    
+    actual_out_address = in_token_address + in_token.nbytes                                 # Output (2KB)
+    golden_address = expert_w3_bias_address + expert_w3_bias.nbytes                         # Golden Output (2KB)
+    
+    expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
+    expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
+    expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
 
-    # # Split weight matrices across two channels for parallel access
-    # expert_w1_weights_address_1 = hbm_ch1_addr  # First 4.5MB of W1
-    # expert_w1_weights_address_2 = hbm_ch2_addr  # Second 4.5MB of W1
-
-    # expert_w2_weights_address_1 = hbm_ch2_addr + 4.5 * 1024 * 1024  # First 4.5MB of W2
-    # expert_w2_weights_address_2 = hbm_ch3_addr  # Second 4.5MB of W2
-
-    # expert_w3_weights_address_1 = hbm_ch3_addr + 4.5 * 1024 * 1024  # First 4.5MB of W3
-    # expert_w3_weights_address_2 = hbm_ch4_addr  # Second 4.5MB of W3
-
-    # expert_w1_bias_address = hbm_ch5_addr  # W1 Bias (9KB)
-    # expert_w2_bias_address = hbm_ch5_addr + expert_w1_bias.nbytes  # W2 Bias (18KB)
-    # expert_w3_bias_address = hbm_ch5_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # W3 Bias (9KB)
-
-    # actual_out_address = hbm_ch6_addr  # Output (2KB)
-    # golden_address = hbm_ch6_addr + actual_out.nbytes  # Golden Output (2KB)
+    
+    # in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
+    # gate_weights_address = in_token_address + in_token.nbytes                               # Gate Weights (16KB)
+    
+    # expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
+    # expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
+    # expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
+    
+    # expert_w1_bias_address = gate_weights_address + gate_weights.nbytes                     # Expert Bias (9KB)
+    # expert_w2_bias_address = hbm_ch4_addr                                                   # Expert Bias (18KB)  
+    # expert_w3_bias_address = expert_w2_bias_address + experts_w2_bias.nbytes                # Expert Bias (9KB)
+    
+    # actual_out_address = expert_w1_bias_address + expert_w1_bias.nbytes                     # Output (2KB)
+    # golden_address = expert_w3_bias_address + expert_w3_bias.nbytes                         # Golden Output (2KB)
     
     # Print all addresses
     # print("in_token_address: ", hex(in_token_address))
