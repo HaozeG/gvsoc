@@ -53,24 +53,34 @@ int main(){
     // uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
     // uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 
+    // HBM channel address map
+    uint32_t hbm_ch0_offset = 0;
+    uint32_t hbm_ch1_offset = hbm_ch0_offset + HBM_NODE_SIZE;
+    uint32_t hbm_ch2_offset = hbm_ch0_offset + HBM_NODE_SIZE * 2;
+    uint32_t hbm_ch3_offset = hbm_ch0_offset + HBM_NODE_SIZE * 3;
+
+    uint32_t hbm_south_offset = hbm_ch0_offset + HBM_NODE_SIZE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);   // channel 4
+    uint32_t hbm_ch4_offset = hbm_south_offset;
+    uint32_t hbm_ch5_offset = hbm_south_offset + HBM_NODE_SIZE; // channel 5
+    uint32_t hbm_ch6_offset = hbm_south_offset + HBM_NODE_SIZE * 2; // channel 6
+    uint32_t hbm_ch7_offset = hbm_south_offset + HBM_NODE_SIZE * 3; // channel 7
+
     /** 
      * HBM data placement version 1
      */
-    uint32_t in_token_offset = 0;   // channel 0
+    uint32_t in_token_offset = hbm_ch0_offset;   // channel 0
     uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 0
-    uint32_t expert_w1_weights_offset = in_token_offset + HBM_NODE_SIZE; //channel 1
-    uint32_t expert_w2_weights_offset = in_token_offset + HBM_NODE_SIZE * 2; // channel 2
-    uint32_t expert_w3_weights_offset = in_token_offset + HBM_NODE_SIZE * 3; // channel 3
-
-    uint32_t hbm_south_offset = in_token_offset + HBM_NODE_SIZE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);   // channel 4
+    uint32_t expert_w1_weights_offset = hbm_ch2_offset; //channel 2
+    uint32_t expert_w2_weights_offset = hbm_ch1_offset; // channel 1
+    uint32_t expert_w3_weights_offset = hbm_ch5_offset; // channel 5
 
     // All bias matrices are placed in the same HBM channel (channel 4)
-    uint32_t expert_w1_bias_offset = hbm_south_offset;  // channel 4
+    uint32_t expert_w1_bias_offset = hbm_ch4_offset;  // channel 4
     uint32_t expert_w2_bias_offset = expert_w1_bias_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
     uint32_t expert_w3_bias_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
 
     // uint32_t gate_weights_offset = hbm_south_offset + HBM_NODE_SIZE; // channel 5
-    uint32_t actual_out_offset = hbm_south_offset + HBM_NODE_SIZE; // channel 5
+    uint32_t actual_out_offset = hbm_ch6_offset; // channel 5
     uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES; // channel 5
 
     /** 
@@ -210,6 +220,15 @@ int main(){
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
         printf("[Check Results]\n");
+        // printf("golden_out:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 16; j++) {
+        //         printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
+        //     }
+        //     printf("\n");
+        // }        
         printf("actual_out:\n");
         for (int i = 0; i < n_token; i++) {
             printf("    ");

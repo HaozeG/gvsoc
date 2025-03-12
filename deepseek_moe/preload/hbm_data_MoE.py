@@ -111,16 +111,17 @@ if __name__ == '__main__':
     
     ### START HBM data placement version 1 ###
     # Map datas to HBM channels
+    # Channel 3 and 7 are left unused due to their distance from cluster 0
     in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
     gate_weights_address = hbm_ch0_addr + in_token.nbytes                                   # Gate Weights (16KB)
-    expert_w1_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
-    expert_w2_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
-    expert_w3_weights_address = hbm_ch3_addr                                                # Expert Weights (9MB)
+    expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
+    expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
+    expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
     expert_w1_bias_address = hbm_ch4_addr                                                   # Expert Bias (9KB)
     expert_w2_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes                           # Expert Bias (18KB)  
     expert_w3_bias_address = hbm_ch4_addr + expert_w1_bias.nbytes + experts_w2_bias.nbytes  # Expert Bias (9KB)
-    actual_out_address = hbm_ch5_addr                                                       # Output (2KB)
-    golden_address = hbm_ch5_addr + actual_out.nbytes                                       # Golden Output (2KB)
+    actual_out_address = hbm_ch6_addr                                                       # Output (2KB)
+    golden_address = hbm_ch6_addr + actual_out.nbytes                                       # Golden Output (2KB)
     ### END HBM data placement version 1 ###
     
     ### START HBM data placement version 2 ###
