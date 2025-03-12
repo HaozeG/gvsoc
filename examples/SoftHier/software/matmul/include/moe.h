@@ -24,6 +24,7 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
 void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t dim, const uint32_t n_token);
 void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
 void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void normalize(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
 void dot_product(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr);
 void apply_element_wise(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_t op);
@@ -40,6 +41,7 @@ void sigmoid_op(const fp16* input, fp16* output);
  * @param n_routed_expert number of candidate values in each row of the input matrix
  * @param n_token number of rows in the input matrix
  */
+// TODO: consider using quick select algorithm for better performance
 void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t n_routed_expert, const uint32_t n_token) {
     if (0 == k || 0 == n_routed_expert || 0 == n_token || k > TILE_WIDTH) {
         return;
@@ -53,9 +55,9 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
     uint16_t max, max_idx;
 
     uint32_t local_out_value, local_out_indicies, local_in;
-    local_out_value = 0;
-    local_out_indicies = local_out_value + ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
-    local_in = local_out_indicies + ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
+    local_out_value = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
+    local_out_indicies = local_out_value - ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
+    local_in = local_out_indicies - ARCH_NUM_CORE_PER_CLUSTER * n_routed_expert * DATA_SIZE_BYTES;
     local_in += core_id * n_routed_expert * DATA_SIZE_BYTES;
 
     // NOTE: cannot use i_row_core < n_token here. Excluding certain cores from computation involving intra-cluster synchronization could cause synchronization issues!!!
@@ -100,6 +102,75 @@ void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t
             // flex_dma_async_1d(hbm_addr(in_addr + i_row * k * DATA_SIZE_BYTES), local(local_in), transfer_rows * n_routed_expert * DATA_SIZE_BYTES);
             flex_dma_async_1d(hbm_addr(out_value_addr + i_row_cluster * k * DATA_SIZE_BYTES), local(local_out_value), transfer_rows * k * DATA_SIZE_BYTES);
             flex_dma_async_1d(hbm_addr(out_index_addr + i_row_cluster * k * DATA_SIZE_BYTES), local(local_out_indicies), transfer_rows * k * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        i_row_cluster += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER;
+    }
+    flex_global_barrier_xy();
+}
+
+/**
+ * @brief normalize the input matrix along rows. Consider dim here to be small, just use the simplist way to implement it.
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim colomn dimension of the input matrix
+ * @param n_token row dimension of the input matrix
+ */
+void normalize(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token) {
+    if (0 == dim || 0 == n_token) {
+        return;
+    }
+    flex_global_barrier_xy();
+    
+    uint32_t cluster_id = flex_get_cluster_id();
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    uint32_t i_row_cluster = cluster_id * ARCH_NUM_CORE_PER_CLUSTER;
+    uint16_t transfer_rows;
+
+    uint32_t local_out, local_sum;
+    local_out = ARCH_CLUSTER_TCDM_SIZE - dim * DATA_SIZE_BYTES;
+    local_sum = local_out - DATA_SIZE_BYTES;
+
+    // NOTE: cannot use i_row_core < n_token here. Excluding certain cores from computation involving intra-cluster synchronization could cause synchronization issues!!!
+    while (i_row_cluster < n_token) {
+        // Transfer one row per cluster
+        if (flex_is_dm_core()) {
+            // flex_dma_async_1d_reduction(local(local_sum), hbm_addr(in_addr + i_row_cluster * dim * DATA_SIZE_BYTES), dim * DATA_SIZE_BYTES, COLLECTIVE_REDADD_FP_16);
+            flex_dma_async_1d(local(local_out), hbm_addr(in_addr + i_row_cluster * dim * DATA_SIZE_BYTES), dim * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        flex_intra_cluster_sync();
+        
+        if (0 == core_id) {
+            float sum = 0;
+            float fa;
+            for (int i = 0; i < dim; i++) {
+                fa = fp16_to_float(((fp16 *)local(local_out))[i]);
+                // printf("[NORMALIZE] 0x%x\n", ((fp16 *)local(local_out))[i]);
+                sum += fa;
+            }
+            ((fp16 *)local(local_sum))[0] = float_to_fp16(sum);
+        }
+        flex_intra_cluster_sync();
+
+        uint32_t n_element_per_core = (dim - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
+        for (int i = 0; i < n_element_per_core; i++) {
+            if (i + core_id * n_element_per_core < dim) {
+                fp16 a = ((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                fp16 *b_ptr = (fp16 *)local(local_sum);
+                fp16 c = 0;
+                // if (0 == core_id) {
+                //     printf("[NORMALIZE] a = 0x%x sum = 0x%x\n", a, *b_ptr);
+                // }
+                asm_fp16_div(&a, b_ptr, &c);
+                ((fp16 *)local(local_out))[i + core_id * n_element_per_core] = c;
+            }
+        }
+        flex_intra_cluster_sync();
+        // transfer the top k values and indices to HBM
+        if (flex_is_dm_core()) {
+            flex_dma_async_1d(hbm_addr(out_addr + i_row_cluster * dim * DATA_SIZE_BYTES), local(local_out), dim * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
         }
         i_row_cluster += ARCH_NUM_CORE_PER_CLUSTER * ARCH_NUM_CLUSTER;
@@ -376,10 +447,10 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
     top_k(actual_out_addr, actual_out_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
     // sigmoid
-    sigmoid(actual_out_addr, actual_out_addr, n_activated_experts, 32);
+    sigmoid(actual_out_addr, actual_out_addr, n_activated_experts, n_token);
     // normalize
+    normalize(actual_out_addr, actual_out_addr, n_activated_experts, n_token);
 
-    return;
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     int i = 0;
