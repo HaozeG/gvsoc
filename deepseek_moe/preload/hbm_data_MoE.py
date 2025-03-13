@@ -126,46 +126,33 @@ if __name__ == '__main__':
     
     ### START HBM data placement version 2 ###
     # Map data to HBM regions
-    in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
-    gate_weights_address = hbm_ch6_addr                                                     # Gate Weights (16KB)
+    expert_w1_weights_address = hbm_ch0_addr                                                # Expert Weights (9MB)
+    expert_w1_bias_address = expert_w1_weights_address + expert_w1_weights.nbytes           # Expert Bias (9KB)
     
-    expert_w1_bias_address = gate_weights_address + gate_weights.nbytes                     # Expert Bias (9KB)
-    expert_w2_bias_address = hbm_ch4_addr                                                   # Expert Bias (18KB)
-    expert_w3_bias_address = expert_w1_bias_address + expert_w1_bias.nbytes                 # Expert Bias (9KB)
-    
-    actual_out_address = in_token_address + in_token.nbytes                                 # Output (2KB)
-    golden_address = expert_w3_bias_address + expert_w3_bias.nbytes                         # Golden Output (2KB)
-    
-    expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
     expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
-    expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
-
+    expert_w2_bias_address = expert_w2_weights_address + expert_w2_weights.nbytes              # Expert Bias (18KB)
     
-    # in_token_address = hbm_ch0_addr                                                         # Token Data (2KB)
-    # gate_weights_address = in_token_address + in_token.nbytes                               # Gate Weights (16KB)
+    expert_w3_weights_address = hbm_ch3_addr                                                # Expert Weights (9MB)
+    expert_w3_bias_address = expert_w3_weights_address + expert_w3_weights.nbytes             # Expert Bias (9KB)
     
-    # expert_w1_weights_address = hbm_ch2_addr                                                # Expert Weights (9MB)
-    # expert_w2_weights_address = hbm_ch1_addr                                                # Expert Weights (9MB)
-    # expert_w3_weights_address = hbm_ch5_addr                                                # Expert Weights (9MB)
+    in_token_address = hbm_ch2_addr                                                         # Token Data (2KB)
+    gate_weights_address = in_token_address + in_token.nbytes                               # Gate Weights (16KB)
     
-    # expert_w1_bias_address = gate_weights_address + gate_weights.nbytes                     # Expert Bias (9KB)
-    # expert_w2_bias_address = hbm_ch4_addr                                                   # Expert Bias (18KB)  
-    # expert_w3_bias_address = expert_w2_bias_address + experts_w2_bias.nbytes                # Expert Bias (9KB)
-    
-    # actual_out_address = expert_w1_bias_address + expert_w1_bias.nbytes                     # Output (2KB)
-    # golden_address = expert_w3_bias_address + expert_w3_bias.nbytes                         # Golden Output (2KB)
+    actual_out_address = hbm_ch4_addr                                                       # Output (2KB)
+    golden_address = actual_out_address + actual_out.nbytes                                 # Golden Output (2KB)
+    # END HBM data placement version 2 ###
     
     # Print all addresses
-    # print("in_token_address: ", hex(in_token_address))
-    # print("gate_weights_address: ", hex(gate_weights_address))
-    # print("expert_w1_weights_address: ", hex(expert_w1_weights_address))
-    # print("expert_w2_weights_address: ", hex(expert_w2_weights_address))
-    # print("expert_w3_weights_address: ", hex(expert_w3_weights_address))
-    # print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
-    # print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
-    # print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
-    # print("actual_out_address: ", hex(actual_out_address))
-    # print("golden_address: ", hex(golden_address))
+    print("in_token_address: ", hex(in_token_address))
+    print("gate_weights_address: ", hex(gate_weights_address))
+    print("expert_w1_weights_address: ", hex(expert_w1_weights_address))
+    print("expert_w2_weights_address: ", hex(expert_w2_weights_address))
+    print("expert_w3_weights_address: ", hex(expert_w3_weights_address))
+    print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
+    print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
+    print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
+    print("actual_out_address: ", hex(actual_out_address))
+    print("golden_address: ", hex(golden_address))
         
     # Print data sizes
     # print("token size: ", in_token.nbytes)
