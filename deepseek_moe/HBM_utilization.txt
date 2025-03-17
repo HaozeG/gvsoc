@@ -44,40 +44,39 @@ No longer applies to current version of implement.
 Data placement 2:
 ====================================================================================
 
-DRAMSysRecordable0.controller0  Total Time:     1019974 ns
-DRAMSysRecordable0.controller0  AVG BW:         115.25 Gb/s |  14.40 GB/s |  22.51 %
-DRAMSysRecordable0.controller0  AVG BW\IDLE:    419.23 Gb/s |  52.40 GB/s |  81.88 %
+DRAMSysRecordable0.controller0  Total Time:     1024207 ns
+DRAMSysRecordable0.controller0  AVG BW:         114.77 Gb/s |  14.34 GB/s |  22.41 %
+DRAMSysRecordable0.controller0  AVG BW\IDLE:    419.87 Gb/s |  52.48 GB/s |  82.00 %
 DRAMSysRecordable0.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable1.controller0  Total Time:     1019974 ns
-DRAMSysRecordable1.controller0  AVG BW:         115.36 Gb/s |  14.42 GB/s |  22.53 %
-DRAMSysRecordable1.controller0  AVG BW\IDLE:    409.50 Gb/s |  51.18 GB/s |  79.98 %
+DRAMSysRecordable1.controller0  Total Time:     1024207 ns
+DRAMSysRecordable1.controller0  AVG BW:         114.88 Gb/s |  14.36 GB/s |  22.43 %
+DRAMSysRecordable1.controller0  AVG BW\IDLE:    406.53 Gb/s |  50.81 GB/s |  79.40 %
 DRAMSysRecordable1.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable2.controller0  Total Time:     1019974 ns
+DRAMSysRecordable2.controller0  Total Time:     1024207 ns
 DRAMSysRecordable2.controller0  AVG BW:           1.95 Gb/s |   0.24 GB/s |   0.38 %
-DRAMSysRecordable2.controller0  AVG BW\IDLE:     48.11 Gb/s |   6.01 GB/s |   9.39 %
+DRAMSysRecordable2.controller0  AVG BW\IDLE:     48.94 Gb/s |   6.11 GB/s |   9.55 %
 DRAMSysRecordable2.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable3.controller0  Total Time:     1019974 ns
-DRAMSysRecordable3.controller0  AVG BW:         115.25 Gb/s |  14.40 GB/s |  22.51 %
-DRAMSysRecordable3.controller0  AVG BW\IDLE:    420.19 Gb/s |  52.52 GB/s |  82.06 %
+DRAMSysRecordable3.controller0  Total Time:     1024207 ns
+DRAMSysRecordable3.controller0  AVG BW:         114.77 Gb/s |  14.34 GB/s |  22.41 %
+DRAMSysRecordable3.controller0  AVG BW\IDLE:    419.77 Gb/s |  52.47 GB/s |  81.98 %
 DRAMSysRecordable3.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable4.controller0  Total Time:     1019974 ns
-DRAMSysRecordable4.controller0  AVG BW:           4.47 Gb/s |   0.55 GB/s |   0.87 %
-DRAMSysRecordable4.controller0  AVG BW\IDLE:     95.41 Gb/s |  11.92 GB/s |  18.63 %
+DRAMSysRecordable4.controller0  Total Time:     1024207 ns
+DRAMSysRecordable4.controller0  AVG BW:           4.82 Gb/s |   0.60 GB/s |   0.94 %
+DRAMSysRecordable4.controller0  AVG BW\IDLE:     99.86 Gb/s |  12.48 GB/s |  19.50 %
 DRAMSysRecordable4.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable5.controller0  Total Time:     1019974 ns
-DRAMSysRecordable5.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable5.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable5.controller0  Total Time:     1024207 ns
+DRAMSysRecordable5.controller0  AVG BW:           0.01 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable5.controller0  AVG BW\IDLE:    368.17 Gb/s |  46.02 GB/s |  71.91 %
 DRAMSysRecordable5.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable6.controller0  Total Time:     1019974 ns
+DRAMSysRecordable6.controller0  Total Time:     1024207 ns
 DRAMSysRecordable6.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
 DRAMSysRecordable6.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
 DRAMSysRecordable6.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable7.controller0  Total Time:     1019974 ns
+DRAMSysRecordable7.controller0  Total Time:     1024207 ns
 DRAMSysRecordable7.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
 DRAMSysRecordable7.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
-Total utilization: 68.8%
 
 
 

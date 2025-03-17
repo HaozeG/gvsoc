@@ -4,7 +4,7 @@
 #include "flex_printf.h"
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
-#include "moe.h"
+#include "gemv.h"
 // #define PRINT_DEBUG
 
 #define HBM_NODE_SIZE 0x04000000 // 64MB
@@ -205,12 +205,7 @@ int main(){
         printf("[Start MoE Computation]\n");
         flex_timer_start();
     }
-    compute_moe(in_token_offset, n_token, dim, inter_dim, 
-                n_routed_experts, n_shared_experts, n_activated_experts, 
-                gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, 
-                expert_w2_weights_offset, expert_w2_bias_offset, 
-                expert_w3_weights_offset, expert_w3_bias_offset, 
-                actual_out_offset);
+    compute_gemv(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         flex_timer_end();
