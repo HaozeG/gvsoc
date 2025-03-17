@@ -10,19 +10,34 @@
 // use float16 as data type
 #define DATA_SIZE_BYTES 2
 // Parameters for GEMM
-// TILE_WIDTH * num_cluster_x = BLOCK_WIDTH
-#define BLOCK_WIDTH 256
-#define TILE_WIDTH 32
+#define TILE_WIDTH 64
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
-#define ELEMENT_WISE_TILE_WIDTH 2
+#define ELEMENT_WISE_TILE_WIDTH 8
 
+typedef void (*element_wise_op_1_in_t)(const fp16* input, fp16* output);
+typedef void (*element_wise_op_2_in_t)(const fp16* input1, const fp16* input2, fp16* output);
+typedef void (*element_wise_op_2_in_const_t)(const fp16* input1, const fp16* in_const, fp16* output);
 // designed for NUM_CLUSTER = 16
 typedef uint16_t cluster_map_t;
 // 2.5 in float
 fp16 route_scale = (fp16)0x4100;
 
 void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map);
+void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t dim, const uint32_t n_token);
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void normalize(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void dot_product(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+void add(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token);
+
+void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in_const(const uint32_t in_addr, const fp16 in_const, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in(const uint32_t in_addr1, const uint32_t in_addr2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map);
+void silu_op(const fp16* input, fp16* output);
+void sigmoid_op(const fp16* input, fp16* output);
+void mul_op(const fp16* input1, const fp16* input2, fp16* output);
+void add_op(const fp16* input1, const fp16* input2, fp16* output);
 
 /**
  * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN).
@@ -161,5 +176,90 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
     flex_global_barrier_xy();
 }
 
+/**
+ * @brief apply element-wise operation on ONE INPUT matrix. Each core processes ELEMENT_WISE_TILE_WIDTH elements at a time.
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param op element_wise_op_t function pointer
+ */
+void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map) {
+    if (0 == dim || 0 == n_token || NULL == op) {
+        return;
+    }
+    flex_global_barrier_xy();
+
+    uint32_t local_in, local_out;
+    local_in = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+    local_out = local_in - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+
+    uint32_t cluster_id = flex_get_cluster_id();
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        // index of the first element to be processed by current cluster
+        uint32_t i_element_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+        uint32_t n_element_per_cluster, n_element_per_core;
+
+        while (i_element_cluster < n_token * dim) {
+            // load data: one dma transfer per cluster
+            n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            
+            // compute element-wise operation
+            n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+            flex_intra_cluster_sync();
+            for (int i = 0; i < n_element_per_core; i++) {
+                int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
+                op((const fp16*)local(local_in + idx * DATA_SIZE_BYTES), 
+                        (fp16*)local(local_out + idx * DATA_SIZE_BYTES));
+            }
+            flex_intra_cluster_sync();
+
+            // store data: one dma transfer per cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            i_element_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated * ELEMENT_WISE_TILE_WIDTH;
+        }
+    }
+    flex_global_barrier_xy();
+}
+
+/**
+ * @brief element-wise silu activation function
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_1_in(in_addr, out_addr, dim, n_token, silu_op, cluster_map); 
+}
+
+void silu_op(const fp16* input, fp16* output) {
+    asm_fp16_sigmoid(input, output);
+    float fa = fp16_to_float(*output);
+    float fb = fp16_to_float(*input);
+    *output = float_to_fp16(fa * fb);
+}
 
 #endif
