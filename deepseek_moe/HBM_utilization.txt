@@ -36,12 +36,12 @@ DRAMSysRecordable7.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -n
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
 ====================================================================================
-Data arrangement 1:
+Data placement 1:
 ====================================================================================
-
+No longer applies to current version of implement.
 
 ====================================================================================
-Data arrangement 2:
+Data placement 2:
 ====================================================================================
 
 DRAMSysRecordable0.controller0  Total Time:     1019974 ns
