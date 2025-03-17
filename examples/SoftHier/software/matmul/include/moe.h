@@ -1,5 +1,5 @@
-#ifndef MATMUL_H
-#define MATMUL_H
+#ifndef MOE_H
+#define MOE_H
 
 // #include <math.h>
 #include "flex_runtime.h"
@@ -427,6 +427,7 @@ void add(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_
     apply_element_wise_2_in(in_addr_1, in_addr_2, out_addr, dim, n_token, add_op);
 }
 
+// TODO: For inferencing, the input matrix shape is [1, dim], which is not efficient enough for dividing output tasks to different clusters.
 /**
  * @brief GEMM operation A * B = C for input matrices A (MxK), B (KxN) and output matrix C (MxN). Assumes that K, M and N are multiples of TILE_WIDTH.
  * 
@@ -438,7 +439,6 @@ void add(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_
  * @param N 
  * @param bias_addr address of bias matrix. shaped as [1, N], added to each row of the output matrix
  */
-// TODO: For inferencing, the input matrix shape is [1, dim], which is not efficient enough for dividing output tasks to different clusters.
 void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr) {
     if (0 == M || 0 == N || 0 == K) {
         return;
@@ -591,45 +591,48 @@ void gemm(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     flex_global_barrier_xy();
     uint32_t top_k_weights_addr, top_k_indices_addr;
-    // TODO: 重新设计一下TCDM和HBM中的数据划分，现在乱写的
+    uint32_t temp_token_0, temp_token_1;
     top_k_weights_addr = actual_out_addr + n_token * dim * DATA_SIZE_BYTES;
     top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
 
     // Gate 
-    gemm(in_token_addr, gate_weights_addr, actual_out_addr, dim, n_token, n_routed_experts, zomem(0));
-    top_k(actual_out_addr, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
+    gemm(in_token_addr, gate_weights_addr, temp_token_0, dim, n_token, n_routed_experts, zomem(0));
+    top_k(temp_token_0, top_k_weights_addr, top_k_indices_addr, n_activated_experts, n_routed_experts, n_token);
     // sigmoid
     sigmoid(top_k_weights_addr, top_k_weights_addr, n_activated_experts, n_token);
     // normalize
     normalize(top_k_weights_addr, top_k_weights_addr, n_activated_experts, n_token);
-
+    
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     int i = 0;
     uint16_t i_expert;
     fp16 w_expert;
     while (i < n_activated_experts) {
+        // TODO: check i, w
         i_expert = ((uint16_t *)hbm_addr(top_k_indices_addr))[i];
         w_expert = ((fp16 *)hbm_addr(top_k_weights_addr))[i];
         mul_op(&w_expert, &route_scale, &w_expert);
         
         // w1.forward(x)
-        gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
+        gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // silu(w1.forward(x))
-        silu(actual_out_addr, actual_out_addr, inter_dim, n_token);
+        silu(temp_token_0, temp_token_0, inter_dim, n_token);
         
         // w3.forward(x)
-        gemm(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
+        gemm(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         
         // silu(w1.forward(x)) * w3.forward(x)
-        dot_product(actual_out_addr, actual_out_addr, actual_out_addr, inter_dim, n_token);
+        dot_product(temp_token_0, temp_token_1, temp_token_0, inter_dim, n_token);
         
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
-        gemm(actual_out_addr, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
+        gemm(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
         
         // multiply by gate weight and add to the output
-        apply_element_wise_2_in_const(actual_out_addr, w_expert, actual_out_addr, dim, n_token, mul_op);
-        apply_element_wise_2_in(actual_out_addr, actual_out_addr, actual_out_addr, dim, n_token, add_op);
+        apply_element_wise_2_in_const(temp_token_0, w_expert, temp_token_0, dim, n_token, mul_op);
+        apply_element_wise_2_in(temp_token_0, actual_out_addr, actual_out_addr, dim, n_token, add_op);
 
         i++;
     }
@@ -637,15 +640,15 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // Shared experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
-        gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
-        silu(actual_out_addr, actual_out_addr, inter_dim, n_token);
-        gemm(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
+        gemm(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
+        silu(temp_token_0, temp_token_0, inter_dim, n_token);
+        gemm(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
 
-        dot_product(actual_out_addr, actual_out_addr, actual_out_addr, inter_dim, n_token);
+        dot_product(temp_token_0, temp_token_1, temp_token_0, inter_dim, n_token);
 
-        gemm(actual_out_addr, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), actual_out_addr, inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
+        gemm(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
         // Add shared experts output with weighted routed experts output
-        apply_element_wise_2_in(actual_out_addr, actual_out_addr, actual_out_addr, dim, n_token, add_op);
+        apply_element_wise_2_in(temp_token_0, actual_out_addr, actual_out_addr, dim, n_token, add_op);
     }
     flex_global_barrier_xy();
 }
