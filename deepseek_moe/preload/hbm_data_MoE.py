@@ -138,8 +138,8 @@ if __name__ == '__main__':
     in_token_address = hbm_ch2_addr                                                         # Token Data (2KB)
     gate_weights_address = in_token_address + in_token.nbytes                               # Gate Weights (16KB)
     
-    actual_out_address = hbm_ch4_addr                                                       # Output (2KB)
-    golden_address = actual_out_address + actual_out.nbytes                                 # Golden Output (2KB)
+    actual_out_address = hbm_ch4_addr                                                       # Output (2KB), rest of the CH4 spaces used for intermediate write-back
+    golden_address = hbm_ch5_addr                                                           # Golden Output (2KB)
     # END HBM data placement version 2 ###
     
     # Print all addresses
