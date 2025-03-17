@@ -12,7 +12,7 @@
 // Parameters for GEMM
 // TILE_WIDTH * num_cluster_x = BLOCK_WIDTH
 #define BLOCK_WIDTH 256
-#define TILE_WIDTH 64
+#define TILE_WIDTH 32
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 2
@@ -25,7 +25,7 @@ fp16 route_scale = (fp16)0x4100;
 void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map);
 
 /**
- * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN). Assumes that K, M and N are multiples of TILE_WIDTH.
+ * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN).
  * 
  * @param A address of vector A
  * @param B address of matrix B
@@ -95,10 +95,9 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                         flex_dma_async_1d(local(accumulator), zomem(0), m_tile * n_tile * DATA_SIZE_BYTES);
                         flex_dma_async_wait_all();
                     } else {
-                        flex_dma_sync_2d(local(accumulator), bias_addr + (gj * tile_width + j * BLOCK_WIDTH) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, 0, m_tile);
+                        flex_dma_sync_2d(local(accumulator), bias_addr + (gj * tile_width + j * block_width_j) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, 0, m_tile);
                     }
                 }
-                // flex_intra_cluster_sync();
                 if(flex_is_first_core()) {
                     // flex_redmule_config() usage: [m_size, n_size] * [n_size, k_size] = [m_size, k_size]
                     flex_redmule_config(m_tile, tile_width, n_tile);
@@ -118,8 +117,8 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                             load_dest_A = local_A_1;
                             load_dest_B = local_B_1;
                         }
-                        flex_dma_sync_2d(local(load_dest_A), A + ((K * (tile_width * gi + i * block_width_j)) + bK) * DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, K*DATA_SIZE_BYTES, m_tile);
-                        flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_i) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
+                        flex_dma_sync_2d(local(load_dest_A), A + ((K * (tile_width * gi + i * block_width_i)) + bK) * DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, K*DATA_SIZE_BYTES, m_tile);
+                        flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
                     }
                     
                     // make sure data is ready
@@ -147,16 +146,14 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                         flex_redmule_trigger(_in_local_a, _in_local_b, _in_local_sum, REDMULE_FP_16);
                         flex_redmule_wait();
                         ///////////////////
-
                     }
                     is_odd = 1 - is_odd;
-                    
                 }
 
                 flex_intra_cluster_sync();
                 // SoftHier_TCDM -> SoftHier_HBM
                 if(flex_is_dm_core()) {
-                    flex_dma_sync_2d(C + ((tile_width * gi + i * block_width_j) * N + tile_width * gj + j * block_width_i) * DATA_SIZE_BYTES, local(accumulator), n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, m_tile);
+                    flex_dma_sync_2d(C + ((tile_width * gi + i * block_width_i) * N + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES, local(accumulator), n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, m_tile);
                 }
             }
         }
