@@ -317,7 +317,8 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
 
-    // TODO: experiment with different combinations
+    // TODO: Broadcast token to all clusters
+
     cluster_map_t cluster_map = 0xFFFF;
 
     // Gate 
