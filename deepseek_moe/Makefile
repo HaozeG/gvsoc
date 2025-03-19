@@ -1,6 +1,9 @@
 hbm_pld:
 	cd preload; python hbm_data_MoE.py
 
+hbm_pld_gemv:
+	cd preload; python hbm_data_gemv.py
+
 # Bypass prelaod to save time
 hs_moe:	
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ hs run

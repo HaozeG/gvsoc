@@ -8,8 +8,8 @@
 // #define PRINT_DEBUG
 
 #define HBM_NODE_SIZE 0x04000000 // 64MB
-#define NUM_CLUSTER_X 4
-#define NUM_CLUSTER_Y 4
+// #define NUM_CLUSTER_X 4
+// #define NUM_CLUSTER_Y 4
 
 int main();
 int main(){

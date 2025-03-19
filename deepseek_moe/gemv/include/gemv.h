@@ -18,15 +18,18 @@
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 2
+#define NUM_CLUSTER_X 4
+#define NUM_CLUSTER_Y 4
 
 // designed for NUM_CLUSTER = 16
 typedef uint16_t cluster_map_t;
 // 2.5 in float
 fp16 route_scale = (fp16)0x4100;
 
-void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map);
+void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map, uint32_t partial_result_addr);
 // void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map);
 void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr);
+void broadcast_to_all_clusters(uint32_t dst_addr, uint32_t src_addr, uint32_t size);
 
 /**
  * @brief GEMV with cluster map. Adapted from Haoze's version to 1-D transfer.
@@ -39,7 +42,7 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
  * @param N 
  * @param bias_addr 
  */
-void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map) {
+void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map, uint8_t wb, uint32_t partial_result_addr) {
     if (0 == N || 0 == K) {
         return;
     }
@@ -162,7 +165,11 @@ void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K
             flex_intra_cluster_sync();
 
             if (flex_is_dm_core()) {
-                flex_dma_async_1d(hbm_addr(y + (gj * TILE_WIDTH + j * block_width_j) * DATA_SIZE_BYTES), local(accumulator), n_tile * DATA_SIZE_BYTES);
+                if(wb) {
+                    flex_dma_async_1d(hbm_addr(y + (gj * TILE_WIDTH + j * block_width_j) * DATA_SIZE_BYTES), local(accumulator), n_tile * DATA_SIZE_BYTES);
+                } else {
+                    flex_dma_async_1d(local(partial_result_addr + (gj * TILE_WIDTH + j * block_width_j) * DATA_SIZE_BYTES), local(accumulator), n_tile * DATA_SIZE_BYTES);
+                }
                 flex_dma_async_wait_all();
             }
         }
@@ -308,6 +315,39 @@ void gemv(const uint32_t A, const uint32_t x, const uint32_t y, const uint32_t K
 //     flex_global_barrier_xy();
 // }
 
+/**
+ * @brief 
+ * 
+ * @param dst_addr OFFSET in the TCDM of each cluster to store the broadcasted data
+ * @param src_addr Source address of the data to be broadcasted
+ * @param size 
+ */
+void broadcast_to_all_clusters(uint32_t dst_addr, uint32_t src_addr, uint32_t size) {
+    flex_global_barrier_xy();//Global barrier
+    FlexPosition pos = get_pos(flex_get_cluster_id());
+    
+    //do row-wise broadcast from cluster 0
+    if (flex_is_dm_core() && flex_get_cluster_id() == 0)
+    {
+        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        flex_dma_async_wait_all();
+    }
+
+    flex_global_barrier_xy();//Global barrier
+
+    // Do column-wise broadcast to all clusters
+    for (int cid = 0; cid < NUM_CLUSTER_X; ++cid)
+    {
+        if (flex_is_dm_core() && flex_get_cluster_id() == cid)
+        {   
+            // Broadcast the data in the local TCDM to the entire column
+            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+        }
+        flex_global_barrier_xy();
+    }
+    flex_global_barrier_xy();
+}
+
 void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     flex_global_barrier_xy();
     uint32_t top_k_weights_addr, top_k_indices_addr;
@@ -317,7 +357,19 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
 
-    // TODO: Broadcast token to all clusters
+    /**
+     * INSIDE TCDM
+     *      0: input token
+     *      after token: partial sum
+     */
+
+    // Broadcast the input token to all clusters
+    uint32_t tcdm_in_token_offset = 0;
+    uint32_t in_token_size = n_token * dim * DATA_SIZE_BYTES;
+    broadcast_to_all_clusters(local(tcdm_in_token_offset), hbm_addr(in_token_addr), in_token_size);
+
+    // Address in the TCDM to store the partial sum
+    uint32_t tcdm_partial_sum_addr = tcdm_in_token_offset + in_token_size;
 
     cluster_map_t cluster_map = 0xFFFF;
 
