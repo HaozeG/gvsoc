@@ -7,7 +7,7 @@
 #include "gemv.h"
 // #define PRINT_DEBUG
 
-#define HBM_NODE_SIZE 0x04000000 // 64MB
+// #define HBM_NODE_SIZE 0x04000000 // 64MB
 // #define NUM_CLUSTER_X 4
 // #define NUM_CLUSTER_Y 4
 
@@ -85,8 +85,8 @@ int main(){
     /** 
      * HBM data placement version 2
      */
-    uint32_t in_token_offset = hbm_ch2_offset;   // channel 2
-    uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 2
+    // uint32_t in_token_offset = hbm_ch2_offset;   // channel 2
+    // uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 2
 
     uint32_t expert_w1_weights_offset = hbm_ch0_offset; // channel 0
     uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 0
@@ -97,8 +97,16 @@ int main(){
     uint32_t expert_w3_weights_offset = hbm_ch3_offset; // channel 3
     uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 3
 
-    uint32_t actual_out_offset = hbm_ch4_offset; // channel 4
-    uint32_t golden_out_offset = hbm_ch5_offset; // channel 5
+    // uint32_t actual_out_offset = hbm_ch4_offset; // channel 4
+    // uint32_t golden_out_offset = hbm_ch5_offset; // channel 5
+
+    /** 
+     * HBM data placement version 3
+     */
+    uint32_t in_token_offset = hbm_ch0_offset;   // channel 0
+    uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 0
+    uint32_t actual_out_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES; // channel 0
+    uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES; // channel 0
 
 
 #ifdef PRINT_DEBUG
