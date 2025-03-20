@@ -9,8 +9,8 @@
 
 // use float16 as data type
 #define DATA_SIZE_BYTES 2
-// Parameters for GEMM
-#define TILE_WIDTH 64
+// Parameters for GEMV
+#define TILE_WIDTH 256
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 8
@@ -435,11 +435,7 @@ void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, co
         return;
     }
     flex_global_barrier_xy();
-
-    uint32_t local_in, local_out;
-    local_in = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
-    local_out = local_in - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
-
+    
     uint32_t cluster_id = flex_get_cluster_id();
     uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
     // cluster_id among activated clusters
@@ -454,34 +450,45 @@ void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, co
                 n_cluster_activated += 1;
             }
         }
+        int n_element_per_cluster, n_element_per_core, exec_cycle_per_cluster;
+        exec_cycle_per_cluster = (dim * n_token - 1) / (n_cluster_activated * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH) + 1;
         // index of the first element to be processed by current cluster
-        uint32_t i_element_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
-        uint32_t n_element_per_cluster, n_element_per_core;
-
-        while (i_element_cluster < n_token * dim) {
+        uint32_t i_element_cluster = local_cluster_id * exec_cycle_per_cluster * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+        n_element_per_cluster = fmin(exec_cycle_per_cluster * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+        if (n_element_per_cluster > 0) {
+            uint32_t local_in_0, local_in_1, local_out_0, local_out_1;
+            uint32_t load_dest, store_src;
+            local_in_0 = ARCH_CLUSTER_TCDM_SIZE - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_in_1 = local_in_0 - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out_0 = local_in_1 - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out_1 = local_out_0 - n_element_per_cluster * DATA_SIZE_BYTES;
+            
+            load_dest = local_in_0;
+            store_src = local_out_0;
             // load data: one dma transfer per cluster
-            n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
             if (flex_is_dm_core()) {
-                flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_1d(local(load_dest), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
                 flex_dma_async_wait_all();
             }
             
-            // compute element-wise operation
-            n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
             flex_intra_cluster_sync();
-            for (int i = 0; i < n_element_per_core; i++) {
-                int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
-                op((const fp16*)local(local_in + idx * DATA_SIZE_BYTES), 
-                        (fp16*)local(local_out + idx * DATA_SIZE_BYTES));
+            // index in local memory
+            int i_element_core = core_id * ELEMENT_WISE_TILE_WIDTH;
+            while (i_element_core < n_element_per_cluster) {
+                // compute element-wise operation
+                n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - i_element_core);
+                for (int i = 0; i < n_element_per_core; i++) {
+                    op((const fp16*)local(load_dest + (i + i_element_core) * DATA_SIZE_BYTES), 
+                            (fp16*)local(store_src + (i + i_element_core) * DATA_SIZE_BYTES));
+                }    
+                i_element_core += ELEMENT_WISE_TILE_WIDTH * ARCH_NUM_CORE_PER_CLUSTER;
             }
             flex_intra_cluster_sync();
-
             // store data: one dma transfer per cluster
             if (flex_is_dm_core()) {
-                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(store_src), n_element_per_cluster * DATA_SIZE_BYTES);
                 flex_dma_async_wait_all();
             }
-            i_element_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated * ELEMENT_WISE_TILE_WIDTH;
         }
     }
     flex_global_barrier_xy();
