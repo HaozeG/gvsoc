@@ -250,7 +250,7 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
 
-    uint32_t temp_out = actual_out_addr + n_token * dim * DATA_SIZE_BYTES;
+    uint32_t temp_out = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);
 
     // HBM channel address map
     uint32_t hbm_ch0_offset = 0;
@@ -303,14 +303,14 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
         // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
 
-        // TODO: execution serialized. Need to parallelize the computation.
+        // TODO: bias, better HBM preload, redmule cover idma
         flex_global_barrier_xy();
         // [0:63], fetch data from HBM1, compute by cluster 4, store result on cluster 4
         gemv(tcdm_token_addr, hbm_ch1_offset, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
         // [64:191], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
         gemv(tcdm_token_addr, hbm_ch2_offset + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
-        // [192:383] fetch data from HBM3, compute by cluster 12+13+14+15, store result on cluster 12
-        gemv(tcdm_token_addr, hbm_ch3_offset + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0xF000, 12);
+        // [192:383] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(tcdm_token_addr, hbm_ch3_offset + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
         // [384:447] fetch data from HBM4, compute by cluster 0, store result on cluster 0
         gemv(tcdm_token_addr, hbm_ch4_offset + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
         // [448:575] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
@@ -322,7 +322,7 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
         flex_global_barrier_xy();
 
         // Perform reduction on partial sums to get the final sum
-        // gemv_reduction(hbm_addr(temp_out), tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
+        gemv_reduction(temp_out, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
 
         
         // w3.forward(x)
