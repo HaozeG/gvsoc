@@ -78,6 +78,19 @@ if __name__ == '__main__':
     
     hbm_base_address = 0xc0000000
     
+    # Base ddresses of HBM channels
+    hbm_ch0_addr = hbm_base_address
+    hbm_ch1_addr = hbm_base_address + HBM_NODE_ADDR_SPACE
+    hbm_ch2_addr = hbm_base_address + HBM_NODE_ADDR_SPACE * 2
+    hbm_ch3_addr = hbm_base_address + HBM_NODE_ADDR_SPACE * 3
+    
+    hbm_south_base = hbm_base_address + HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X)
+    
+    hbm_ch4_addr = hbm_south_base
+    hbm_ch5_addr = hbm_south_base + HBM_NODE_ADDR_SPACE
+    hbm_ch6_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 2
+    hbm_ch7_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 3
+    
     ### START HBM data placement version 0 ###
     # in_token_address = hbm_base_address
     # n_tokens_address = in_token_address + in_token.nbytes
@@ -101,19 +114,6 @@ if __name__ == '__main__':
     # addr = np.array([in_token_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address], dtype=np.uint32)
     # print args in hex
     ### END HBM data placement version 0 ###
-    
-    # Base ddresses of HBM channels
-    hbm_ch0_addr = hbm_base_address
-    hbm_ch1_addr = hbm_base_address + HBM_NODE_ADDR_SPACE
-    hbm_ch2_addr = hbm_base_address + HBM_NODE_ADDR_SPACE * 2
-    hbm_ch3_addr = hbm_base_address + HBM_NODE_ADDR_SPACE * 3
-    
-    hbm_south_base = hbm_base_address + HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X)
-    
-    hbm_ch4_addr = hbm_south_base
-    hbm_ch5_addr = hbm_south_base + HBM_NODE_ADDR_SPACE
-    hbm_ch6_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 2
-    hbm_ch7_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 3
     
     ### START HBM data placement version 1 ###
     # Map data to HBM regions

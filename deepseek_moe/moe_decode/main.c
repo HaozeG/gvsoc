@@ -17,9 +17,9 @@ int main(){
     uint16_t n_token = 1;
     uint16_t dim = 1024;
     uint16_t inter_dim = 512;
-    uint16_t n_routed_experts = 8;
+    uint16_t n_routed_experts = 16;
     uint16_t n_shared_experts = 1;
-    uint16_t n_activated_experts = 4;
+    uint16_t n_activated_experts = 8;
     
     /**
      * Shape of matrix:
@@ -195,6 +195,60 @@ int main(){
     // }
 
     compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+
+    // cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
+    // cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
+    // cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
+    // cluster_all = 0xFFFF;
+    // uint32_t top_k_weights_addr, top_k_indices_addr;
+    // uint32_t temp_token_0, temp_token_1;
+    // top_k_weights_addr = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    // top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    // temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    // temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
+    
+    // // Gate 
+    // flex_global_barrier_xy();
+    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_coloring_0);
+    // flex_global_barrier_xy();
+
+    // uint16_t i_expert;
+    // i_expert = 0;
+    // fp16 w_expert;
+    // int i = 0;
+    // while (i < n_activated_experts) {
+    //     // w1.forward(x)
+    //     flex_global_barrier_xy();
+    //     gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_offset + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
+        
+    //     // w3.forward(x)
+    //     gemv(hbm_addr(in_token_offset), hbm_addr(expert_w3_weights_offset + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_offset + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
+    //     flex_global_barrier_xy();
+        
+    //     gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_offset + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_offset + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
+    //     flex_global_barrier_xy();
+        
+    //     // TEST
+    //     // i_expert++;
+
+    //     i++;
+    // }
+        
+    // // Shared experts
+    // for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
+    //     // w1.forward(x)
+    //     flex_global_barrier_xy();
+    //     gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_offset + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
+        
+    //     // w3.forward(x)
+    //     gemv(hbm_addr(in_token_offset), hbm_addr(expert_w3_weights_offset + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_offset + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
+    //     flex_global_barrier_xy();
+        
+    //     flex_global_barrier_xy();
+    //     // w2.forward(silu(w1.forward(x)) * w3.forward(x))
+    //     gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_offset + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_offset + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
+    //     flex_global_barrier_xy();
+    // }
 #endif
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
