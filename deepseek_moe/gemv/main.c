@@ -88,14 +88,14 @@ int main(){
     // uint32_t in_token_offset = hbm_ch2_offset;   // channel 2
     // uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 2
 
-    uint32_t expert_w1_weights_offset = hbm_ch0_offset; // channel 0
-    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 0
+    // uint32_t expert_w1_weights_offset = hbm_ch0_offset; // channel 0
+    // uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 0
 
-    uint32_t expert_w2_weights_offset = hbm_ch1_offset; // channel 1
-    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 1
+    // uint32_t expert_w2_weights_offset = hbm_ch1_offset; // channel 1
+    // uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 1
 
-    uint32_t expert_w3_weights_offset = hbm_ch3_offset; // channel 3
-    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 3
+    // uint32_t expert_w3_weights_offset = hbm_ch3_offset; // channel 3
+    // uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES; // channel 3
 
     // uint32_t actual_out_offset = hbm_ch4_offset; // channel 4
     // uint32_t golden_out_offset = hbm_ch5_offset; // channel 5
@@ -103,6 +103,19 @@ int main(){
     /** 
      * HBM data placement version 3
      */
+    // expert_w1_weights_addr: offset of w1 weights in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w1_weights_offset = 0;
+    // expert_w1_bias_addr: offset of w1 bias in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // expert_w2_weights_addr: offset of w2 weights in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // expert_w2_bias_addr: offset of w2 bias in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // expert_w3_weights_addr: offset of w3 weights in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w3_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // expert_w3_bias_addr: offset of w3 bias in EACH HBM CHANNEL (duplicated)
+    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
     uint32_t in_token_offset = hbm_ch0_offset;   // channel 0
     uint32_t gate_weights_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES; // channel 0
     uint32_t actual_out_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES; // channel 0

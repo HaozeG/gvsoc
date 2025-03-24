@@ -241,6 +241,12 @@ void gemv_reduction(uint32_t dst_addr, uint32_t src_addr, uint32_t size) {
     flex_global_barrier_xy();
 }
 
+// expert_w1_weights_addr: offset of w1 weights in EACH HBM CHANNEL (duplicated)
+// expert_w1_bias_addr: offset of w1 bias in EACH HBM CHANNEL (duplicated)
+// expert_w2_weights_addr: offset of w2 weights in EACH HBM CHANNEL (duplicated)
+// expert_w2_bias_addr: offset of w2 bias in EACH HBM CHANNEL (duplicated)
+// expert_w3_weights_addr: offset of w3 weights in EACH HBM CHANNEL (duplicated)
+// expert_w3_bias_addr: offset of w3 bias in EACH HBM CHANNEL (duplicated)
 void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     flex_global_barrier_xy();
     uint32_t top_k_weights_addr, top_k_indices_addr;
@@ -250,7 +256,9 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
 
-    uint32_t temp_out = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);
+    // temp_out_0 stored after the golden output
+    uint32_t temp_out_0 = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);
+    uint32_t temp_out_1 = temp_out_0 + n_token * dim * DATA_SIZE_BYTES;
 
     // HBM channel address map
     uint32_t hbm_ch0_offset = 0;
@@ -296,38 +304,58 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
     uint16_t i_expert;
     fp16 w_expert;
     while (i < n_activated_experts) {
-        i_expert = ((uint16_t *)hbm_addr(top_k_indices_addr))[i];
-        w_expert = ((fp16 *)hbm_addr(top_k_weights_addr))[i];
+        // i_expert = ((uint16_t *)hbm_addr(top_k_indices_addr))[i];
+        i_expert = 0;
+        // w_expert = ((fp16 *)hbm_addr(top_k_weights_addr))[i];
+        w_expert = 0;
         
         // w1.forward(x)
         // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
 
-        // TODO: bias, better HBM preload, redmule cover idma
+        // TODO: include bias, cleaner HBM preload, redmule cover idma, parse address as arguments
+        // FIXME: use different tcdm token regions for correctness
         flex_global_barrier_xy();
         // [0:63], fetch data from HBM1, compute by cluster 4, store result on cluster 4
-        gemv(tcdm_token_addr, hbm_ch1_offset, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
+        gemv(tcdm_token_addr, hbm_ch1_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
         // [64:191], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
-        gemv(tcdm_token_addr, hbm_ch2_offset + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
+        gemv(tcdm_token_addr, hbm_ch2_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
         // [192:383] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
-        gemv(tcdm_token_addr, hbm_ch3_offset + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
+        gemv(tcdm_token_addr, hbm_ch3_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
         // [384:447] fetch data from HBM4, compute by cluster 0, store result on cluster 0
-        gemv(tcdm_token_addr, hbm_ch4_offset + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
+        gemv(tcdm_token_addr, hbm_ch4_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
         // [448:575] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
-        gemv(tcdm_token_addr, hbm_ch5_offset + 448 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0022, 1);
+        gemv(tcdm_token_addr, hbm_ch5_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 448 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0022, 1);
         // [576:767] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
-        gemv(tcdm_token_addr, hbm_ch6_offset + 576 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x0444, 2);
+        gemv(tcdm_token_addr, hbm_ch6_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 576 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x0444, 2);
         // [768:1023] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
-        gemv(tcdm_token_addr, hbm_ch7_offset + 768 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 256, inter_dim, zomem(0), 0x8888, 3);
+        gemv(tcdm_token_addr, hbm_ch7_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 768 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 256, inter_dim, zomem(0), 0x8888, 3);
         flex_global_barrier_xy();
-
         // Perform reduction on partial sums to get the final sum
-        gemv_reduction(temp_out, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
+        gemv_reduction(temp_out_0, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
 
         
         // w3.forward(x)
         // gemv(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
         // gemv(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
+        flex_global_barrier_xy();
+        // [0:63], fetch data from HBM1, compute by cluster 4, store result on cluster 4
+        gemv(tcdm_token_addr, hbm_ch1_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
+        // [64:191], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
+        gemv(tcdm_token_addr, hbm_ch2_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
+        // [192:383] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(tcdm_token_addr, hbm_ch3_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
+        // [384:447] fetch data from HBM4, compute by cluster 0, store result on cluster 0
+        gemv(tcdm_token_addr, hbm_ch4_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
+        // [448:575] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
+        gemv(tcdm_token_addr, hbm_ch5_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 448 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0022, 1);
+        // [576:767] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
+        gemv(tcdm_token_addr, hbm_ch6_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 576 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x0444, 2);
+        // [768:1023] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
+        gemv(tcdm_token_addr, hbm_ch7_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 768 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 256, inter_dim, zomem(0), 0x8888, 3);
+        flex_global_barrier_xy();
+        // Perform reduction on partial sums to get the final sum
+        gemv_reduction(temp_out_1, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
         
         // silu(w1.forward(x)) * w3.forward(x)
         // dot_product(temp_token_0, temp_token_1, temp_token_0, inter_dim, n_token);
@@ -335,24 +363,95 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
         // gemv(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
         // gemv(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
-
-        // HBM channel 1 - Cluster 4
+        flex_global_barrier_xy();
+        // [0:31], fetch data from HBM1, compute by cluster 4, store result on cluster 4
+        gemv(temp_out_0, hbm_ch1_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 32, dim, zomem(0), 0x0010, 4);
+        // [32:95], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
+        gemv(temp_out_0, hbm_ch2_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 32 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, dim, zomem(0), 0x0300, 8);
+        // [96:191] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(temp_out_0, hbm_ch3_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 96 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 96, dim, zomem(0), 0x7000, 12);
+        // [192:223] fetch data from HBM4, compute by cluster 0, store result on cluster 0
+        gemv(temp_out_0, hbm_ch4_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 32, dim, zomem(0), 0x0001, 0);
+        // [224:287] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
+        gemv(temp_out_0, hbm_ch5_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 224 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, dim, zomem(0), 0x0022, 1);
+        // [288:383] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
+        gemv(temp_out_0, hbm_ch6_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 288 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 96, dim, zomem(0), 0x0444, 2);
+        // [384:511] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
+        gemv(temp_out_0, hbm_ch7_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, dim, zomem(0), 0x8888, 3);
+        flex_global_barrier_xy();
+        // Perform reduction on partial sums to get the final sum
+        gemv_reduction(temp_out_0, tcdm_partial_sum_offset, n_token * dim * DATA_SIZE_BYTES);
 
         i++;
     }
         
     // Shared experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
-    // for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
-    //     // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
-    //     gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
+    for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
+        //     // gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
+        //     gemv(in_token_addr, expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_0, dim, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
+        // [0:63], fetch data from HBM1, compute by cluster 4, store result on cluster 4
+        gemv(tcdm_token_addr, hbm_ch1_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
+        // [64:191], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
+        gemv(tcdm_token_addr, hbm_ch2_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
+        // [192:383] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(tcdm_token_addr, hbm_ch3_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
+        // [384:447] fetch data from HBM4, compute by cluster 0, store result on cluster 0
+        gemv(tcdm_token_addr, hbm_ch4_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
+        // [448:575] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
+        gemv(tcdm_token_addr, hbm_ch5_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 448 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0022, 1);
+        // [576:767] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
+        gemv(tcdm_token_addr, hbm_ch6_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 576 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x0444, 2);
+        // [768:1023] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
+        gemv(tcdm_token_addr, hbm_ch7_offset + expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 768 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 256, inter_dim, zomem(0), 0x8888, 3);
+        flex_global_barrier_xy();
+        // Perform reduction on partial sums to get the final sum
+        gemv_reduction(temp_out_0, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
+
 
     //     // gemv(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)));
     //     gemv(in_token_addr, expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), temp_token_1, dim, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
+        flex_global_barrier_xy();
+        // [0:63], fetch data from HBM1, compute by cluster 4, store result on cluster 4
+        gemv(tcdm_token_addr, hbm_ch1_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0010, 4);
+        // [64:191], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
+        gemv(tcdm_token_addr, hbm_ch2_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 64 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0300, 8);
+        // [192:383] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(tcdm_token_addr, hbm_ch3_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x7000, 12);
+        // [384:447] fetch data from HBM4, compute by cluster 0, store result on cluster 0
+        gemv(tcdm_token_addr, hbm_ch4_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, inter_dim, zomem(0), 0x0001, 0);
+        // [448:575] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
+        gemv(tcdm_token_addr, hbm_ch5_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 448 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, inter_dim, zomem(0), 0x0022, 1);
+        // [576:767] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
+        gemv(tcdm_token_addr, hbm_ch6_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 576 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 192, inter_dim, zomem(0), 0x0444, 2);
+        // [768:1023] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
+        gemv(tcdm_token_addr, hbm_ch7_offset + expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES) + 768 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 256, inter_dim, zomem(0), 0x8888, 3);
+        flex_global_barrier_xy();
+        // Perform reduction on partial sums to get the final sum
+        gemv_reduction(temp_out_1, tcdm_partial_sum_offset, n_token * inter_dim * DATA_SIZE_BYTES);
 
     //     // gemv(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)));
     //     gemv(temp_token_0, expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), temp_token_0, inter_dim, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_map);
-    // }
+        flex_global_barrier_xy();
+        // [0:31], fetch data from HBM1, compute by cluster 4, store result on cluster 4
+        gemv(temp_out_0, hbm_ch1_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES), tcdm_partial_sum_offset, 32, dim, zomem(0), 0x0010, 4);
+        // [32:95], fetch data from HBM2, compute by cluster 8+9, store result on cluster 8
+        gemv(temp_out_0, hbm_ch2_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 32 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, dim, zomem(0), 0x0300, 8);
+        // [96:191] fetch data from HBM3, compute by cluster 12+13+14, store result on cluster 12
+        gemv(temp_out_0, hbm_ch3_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 96 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 96, dim, zomem(0), 0x7000, 12);
+        // [192:223] fetch data from HBM4, compute by cluster 0, store result on cluster 0
+        gemv(temp_out_0, hbm_ch4_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 192 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 32, dim, zomem(0), 0x0001, 0);
+        // [224:287] fetch data from HBM5, compute by cluster 1+5, store result on cluster 1
+        gemv(temp_out_0, hbm_ch5_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 224 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 64, dim, zomem(0), 0x0022, 1);
+        // [288:383] fetch data from HBM6, compute by cluster 2+6+10, store result on cluster 2
+        gemv(temp_out_0, hbm_ch6_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 288 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 96, dim, zomem(0), 0x0444, 2);
+        // [384:511] fetch data from HBM7, compute by cluster 3+7+11+15, store result on cluster 3
+        gemv(temp_out_0, hbm_ch7_offset + expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) + 384 * DATA_SIZE_BYTES, tcdm_partial_sum_offset, 128, dim, zomem(0), 0x8888, 3);
+        flex_global_barrier_xy();
+        // Perform reduction on partial sums to get the final sum
+        gemv_reduction(temp_out_0, tcdm_partial_sum_offset, n_token * dim * DATA_SIZE_BYTES);
+    }
+    
     flex_global_barrier_xy();
 }
 
