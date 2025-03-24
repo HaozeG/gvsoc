@@ -194,6 +194,7 @@ int main(){
     //     printf("0x%04x * 0x%04x = 0x%04x\n", in1, in2, out);
     // }
 
+    // FIXME: something wrong with the address space after extending HBM size
     compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
 
     // cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
