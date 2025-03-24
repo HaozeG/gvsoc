@@ -450,7 +450,7 @@ void compute_gemv(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16
         flex_global_barrier_xy();
         // Perform reduction on partial sums to get the final sum
         gemv_reduction(temp_out_0, tcdm_partial_sum_offset, n_token * dim * DATA_SIZE_BYTES);
-    }
+    // }
     
     flex_global_barrier_xy();
 }
