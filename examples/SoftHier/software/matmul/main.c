@@ -6,7 +6,7 @@
 #include "flex_dma_pattern.h"
 // #include "moe.h"
 #include "moe_decode.h"
-#define PRINT_DEBUG 0
+// #define PRINT_DEBUG 0
 
 int main();
 int main(){
@@ -16,10 +16,14 @@ int main(){
     // Parameters below follows the configuration of MoE model used in preload
     uint16_t n_token = 1;
     uint16_t dim = 1024;
+    // uint16_t dim = 7168;
     uint16_t inter_dim = 512;
+    // uint16_t inter_dim = 2048;
+    // uint16_t n_routed_experts = 256;
     uint16_t n_routed_experts = 8;
     uint16_t n_shared_experts = 1;
-    uint16_t n_activated_experts = 4;
+    uint16_t n_activated_experts = 8;
+    // uint16_t n_activated_experts = 4;
     
     /**
      * Shape of matrix:
@@ -149,11 +153,11 @@ int main(){
 #endif
 
     uint32_t eoc_val = 0;
-    flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         printf("[Start MoE Computation]\n");
         flex_timer_start();
     }
+    flex_global_barrier_xy();
 #ifdef MOE_H
     // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
     //     printf("[Start MoE Computation]\n");
@@ -161,18 +165,26 @@ int main(){
     // compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
     top_k((in_token_offset), (actual_out_offset), (actual_out_offset + DATA_SIZE_BYTES * n_activated_experts), n_activated_experts, n_routed_experts, n_token);
 #endif
-
+    
 #ifdef MOE_DECODE_H
-    cluster_map_t activated_cluster = 0xFFFF;
-    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, n_routed_experts, zomem(0), activated_cluster);
-    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w1_bias_offset), activated_cluster);
-    // silu(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
-    // dot_product(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+    // cluster_map_t activated_cluster;
+    // activated_cluster = 0x5A5A;
+    // activated_cluster = 0xFFFF;
+    // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), hbm_addr(actual_out_offset + 128), n_activated_experts, n_routed_experts, n_token, activated_cluster);
+    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, n_token, n_routed_experts, zomem(0), activated_cluster);
+    // flex_global_barrier_xy();
+    // flex_global_barrier_xy();
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), 7168, 1, 2048, hbm_addr(expert_w1_bias_offset), activated_cluster);
+    // activated_cluster = 0x0033;
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), 7168, 1, 2048, hbm_addr(expert_w2_bias_offset), activated_cluster);
+    // silu(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), 8, 1, activated_cluster);
+    // dot_product(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), 2048, 1, activated_cluster);
     // fp16 in_const = 0x4000;
-    // dot_product_const(hbm_addr(in_token_offset), in_const, hbm_addr(actual_out_offset), dim, 1, activated_cluster);
-    // add(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    // dot_product_const(hbm_addr(in_token_offset), in_const, hbm_addr(actual_out_offset), 7168, 1, activated_cluster);
+    // add(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), 7168, 1, activated_cluster);
     // normalize(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), n_activated_experts, 100, activated_cluster);
-    // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset+1024), hbm_addr(actual_out_offset), 8, 201, 1, activated_cluster);
+    // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset+1024), hbm_addr(actual_out_offset), 8, 256, 1, activated_cluster);
     // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), hbm_addr(actual_out_offset + 1024), 8, 200, 1, activated_cluster);
     // fp16 in1 = 0x9633;
     // fp16 in2 = 0x15a4;
