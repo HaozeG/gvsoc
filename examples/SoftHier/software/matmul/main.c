@@ -4,8 +4,9 @@
 #include "flex_printf.h"
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
-#include "moe.h"
-// #define PRINT_DEBUG 0
+// #include "moe.h"
+#include "moe_decode.h"
+#define PRINT_DEBUG 0
 
 int main();
 int main(){
@@ -130,7 +131,7 @@ int main(){
         for (int i = 0; i < n_token; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 16; j++) {
+            for (int j = 0; j < 32; j++) {
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
             }
             printf("\n");
@@ -153,7 +154,34 @@ int main(){
         printf("[Start MoE Computation]\n");
         flex_timer_start();
     }
-    compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+#ifdef MOE_H
+    // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
+    //     printf("[Start MoE Computation]\n");
+    // }
+    // compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+    top_k((in_token_offset), (actual_out_offset), (actual_out_offset + DATA_SIZE_BYTES * n_activated_experts), n_activated_experts, n_routed_experts, n_token);
+#endif
+
+#ifdef MOE_DECODE_H
+    cluster_map_t activated_cluster = 0xFFFF;
+    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, n_routed_experts, zomem(0), activated_cluster);
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w1_bias_offset), activated_cluster);
+    // silu(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    // dot_product(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    // fp16 in_const = 0x4000;
+    // dot_product_const(hbm_addr(in_token_offset), in_const, hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    // add(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, 1, activated_cluster);
+    // normalize(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), n_activated_experts, 100, activated_cluster);
+    // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset+1024), hbm_addr(actual_out_offset), 8, 201, 1, activated_cluster);
+    // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), hbm_addr(actual_out_offset + 1024), 8, 200, 1, activated_cluster);
+    // fp16 in1 = 0x9633;
+    // fp16 in2 = 0x15a4;
+    // fp16 out;
+    // mul_op(&in1, &in2, &out);
+    // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
+    //     printf("0x%04x * 0x%04x = 0x%04x\n", in1, in2, out);
+    // }
+#endif
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         flex_timer_end();
@@ -168,7 +196,7 @@ int main(){
         for (int i = 0; i < n_token; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 16; j++) {
+            for (int j = 0; j < 32; j++) {
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
             }
             printf("\n");
