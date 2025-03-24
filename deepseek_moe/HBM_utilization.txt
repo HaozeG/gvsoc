@@ -115,7 +115,7 @@ DRAMSysRecordable7.controller0  AVG BW\IDLE:    425.52 Gb/s |  53.19 GB/s |  83.
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
 ====================================================================================
-Colored, duplicated
+Colored, duplicated, 64
 ====================================================================================
 
 DRAMSysRecordable0.controller0  Total Time:     180155 ns

@@ -207,9 +207,9 @@ int main(){
     // temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     // temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
     
-    // // Gate 
+    // Gate 
     // flex_global_barrier_xy();
-    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_coloring_0);
+    // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_all);
     // flex_global_barrier_xy();
 
     // uint16_t i_expert;

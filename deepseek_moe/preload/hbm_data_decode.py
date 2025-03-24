@@ -4,7 +4,7 @@ import os
 import numpy as np
 import preload as pld
 
-HBM_NODE_ADDR_SPACE = 0x04000000
+HBM_NODE_ADDR_SPACE = 0x08000000
 NUM_CLUSTER_X = 4
 NUM_CLUSTER_Y = 4
 DATA_SIZE_BYTES = 2
@@ -218,14 +218,64 @@ if __name__ == '__main__':
     actual_out_address = in_token_address + in_token.nbytes
     golden_address = actual_out_address + actual_out.nbytes
     
-    # TODO: try duplicate all matrices in all HBM channels
+    ### END HBM data placement version 3 ###
     
-    # in_token_address = hbm_ch0_addr
-    # gate_weights_address = in_token_address + in_token.nbytes
-    # actual_out_address = gate_weights_address + gate_weights.nbytes
+    ### START HBM data placement version 4 ###
+    # W1 accessed by coloring 0, store in channel 0, 1, 2, 3
+    # expert_w1_weights_address_0 = hbm_ch0_addr
+    # expert_w1_weights_address_1 = hbm_ch1_addr
+    # expert_w1_weights_address_2 = hbm_ch2_addr
+    # expert_w1_weights_address_3 = hbm_ch3_addr
+    # expert_w1_bias_address_0 = expert_w1_weights_address_0 + expert_w1_weights.nbytes
+    # expert_w1_bias_address_1 = expert_w1_weights_address_1 + expert_w1_weights.nbytes
+    # expert_w1_bias_address_2 = expert_w1_weights_address_2 + expert_w1_weights.nbytes
+    # expert_w1_bias_address_3 = expert_w1_weights_address_3 + expert_w1_weights.nbytes
+    
+    # # W3 accessed by coloring 1, store in channel 4, 5, 6, 7
+    # expert_w3_weights_address_4 = hbm_ch4_addr
+    # expert_w3_weights_address_5 = hbm_ch5_addr
+    # expert_w3_weights_address_6 = hbm_ch6_addr
+    # expert_w3_weights_address_7 = hbm_ch7_addr
+    # expert_w3_bias_address_4 = expert_w3_weights_address_4 + expert_w3_weights.nbytes
+    # expert_w3_bias_address_5 = expert_w3_weights_address_5 + expert_w3_weights.nbytes
+    # expert_w3_bias_address_6 = expert_w3_weights_address_6 + expert_w3_weights.nbytes
+    # expert_w3_bias_address_7 = expert_w3_weights_address_7 + expert_w3_weights.nbytes
+    
+    # # W2 accessed by all clusters, store a copy in all channels
+    # expert_w2_weights_address_0 = expert_w1_bias_address_0 + expert_w1_bias.nbytes
+    # expert_w2_weights_address_1 = expert_w1_bias_address_1 + expert_w1_bias.nbytes
+    # expert_w2_weights_address_2 = expert_w1_bias_address_2 + expert_w1_bias.nbytes
+    # expert_w2_weights_address_3 = expert_w1_bias_address_3 + expert_w1_bias.nbytes
+    # expert_w2_weights_address_4 = expert_w3_bias_address_4 + expert_w3_bias.nbytes
+    # expert_w2_weights_address_5 = expert_w3_bias_address_5 + expert_w3_bias.nbytes
+    # expert_w2_weights_address_6 = expert_w3_bias_address_6 + expert_w3_bias.nbytes
+    # expert_w2_weights_address_7 = expert_w3_bias_address_7 + expert_w3_bias.nbytes
+    # expert_w2_bias_address_0 = expert_w2_weights_address_0 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_1 = expert_w2_weights_address_1 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_2 = expert_w2_weights_address_2 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_3 = expert_w2_weights_address_3 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_4 = expert_w2_weights_address_4 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_5 = expert_w2_weights_address_5 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_6 = expert_w2_weights_address_6 + expert_w2_weights.nbytes
+    # expert_w2_bias_address_7 = expert_w2_weights_address_7 + expert_w2_weights.nbytes
+    
+    # # A copy of gate weights in all HBM channels
+    # gate_weights_address_0 = expert_w2_bias_address_0 + experts_w2_bias.nbytes
+    # gate_weights_address_1 = expert_w2_bias_address_1 + experts_w2_bias.nbytes
+    # gate_weights_address_2 = expert_w2_bias_address_2 + experts_w2_bias.nbytes
+    # gate_weights_address_3 = expert_w2_bias_address_3 + experts_w2_bias.nbytes
+    # gate_weights_address_4 = expert_w2_bias_address_4 + experts_w2_bias.nbytes
+    # gate_weights_address_5 = expert_w2_bias_address_5 + experts_w2_bias.nbytes
+    # gate_weights_address_6 = expert_w2_bias_address_6 + experts_w2_bias.nbytes
+    # gate_weights_address_7 = expert_w2_bias_address_7 + experts_w2_bias.nbytes
+    
+    # # All other data are placed only in HBM channel 0 after the gate weights
+    # in_token_address = gate_weights_address_0 + gate_weights.nbytes
+    # actual_out_address = in_token_address + in_token.nbytes
     # golden_address = actual_out_address + actual_out.nbytes
-    
-    
+    ### END HBM data placement version 4 ###
+        
+        
     # Print all addresses
     # print("in_token_address: ", hex(in_token_address))
     # print("gate_weights_address: ", hex(gate_weights_address))
@@ -256,9 +306,11 @@ if __name__ == '__main__':
     # pld.make_preload_elf("hbm_data_MoE.elf", [in_token, gate_weights, expert_w1_weights, expert_w1_bias, expert_w2_weights, experts_w2_bias, expert_w3_weights, expert_w3_bias, actual_out, golden], addr)
 
     # pld.make_preload_elf("hbm_data_gemv.elf", [in_token, gate_weights, expert_w1_weights, expert_w1_bias, expert_w2_weights, experts_w2_bias, expert_w3_weights, expert_w3_bias, actual_out, golden], [in_token_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address])
-        
+    
+    # Version 3
     pld.make_preload_elf("hbm_data_decode.elf", 
                             [expert_w1_weights, 
+                            expert_w1_weights, 
                             expert_w1_weights, 
                             expert_w1_weights, 
                             expert_w1_weights, 
@@ -272,6 +324,8 @@ if __name__ == '__main__':
                             expert_w1_bias, 
                             expert_w1_bias, 
                             expert_w1_bias, 
+                            expert_w1_bias, 
+                            expert_w2_weights, 
                             expert_w2_weights, 
                             expert_w2_weights, 
                             expert_w2_weights, 
@@ -286,6 +340,7 @@ if __name__ == '__main__':
                             experts_w2_bias, 
                             experts_w2_bias, 
                             experts_w2_bias, 
+                            experts_w2_bias, 
                             expert_w3_weights, 
                             expert_w3_weights, 
                             expert_w3_weights, 
@@ -293,6 +348,8 @@ if __name__ == '__main__':
                             expert_w3_weights, 
                             expert_w3_weights, 
                             expert_w3_weights, 
+                            expert_w3_weights, 
+                            expert_w3_bias, 
                             expert_w3_bias, 
                             expert_w3_bias, 
                             expert_w3_bias, 
@@ -311,13 +368,15 @@ if __name__ == '__main__':
                             in_token,
                             actual_out, 
                             golden], 
-                            [expert_w1_weights_address_1,
+                            [expert_w1_weights_address_0,
+                            expert_w1_weights_address_1,
                             expert_w1_weights_address_2,
                             expert_w1_weights_address_3,
                             expert_w1_weights_address_4,
                             expert_w1_weights_address_5,
                             expert_w1_weights_address_6,
                             expert_w1_weights_address_7,
+                            expert_w1_bias_address_0,
                             expert_w1_bias_address_1,
                             expert_w1_bias_address_2,
                             expert_w1_bias_address_3,
@@ -325,6 +384,7 @@ if __name__ == '__main__':
                             expert_w1_bias_address_5,
                             expert_w1_bias_address_6,
                             expert_w1_bias_address_7,
+                            expert_w2_weights_address_0,
                             expert_w2_weights_address_1,
                             expert_w2_weights_address_2,
                             expert_w2_weights_address_3,
@@ -332,6 +392,7 @@ if __name__ == '__main__':
                             expert_w2_weights_address_5,
                             expert_w2_weights_address_6,
                             expert_w2_weights_address_7,
+                            expert_w2_bias_address_0,
                             expert_w2_bias_address_1,
                             expert_w2_bias_address_2,
                             expert_w2_bias_address_3,
@@ -339,6 +400,7 @@ if __name__ == '__main__':
                             expert_w2_bias_address_5,
                             expert_w2_bias_address_6,
                             expert_w2_bias_address_7,
+                            expert_w3_weights_address_0,
                             expert_w3_weights_address_1,
                             expert_w3_weights_address_2,
                             expert_w3_weights_address_3,
@@ -346,6 +408,7 @@ if __name__ == '__main__':
                             expert_w3_weights_address_5,
                             expert_w3_weights_address_6,
                             expert_w3_weights_address_7,
+                            expert_w3_bias_address_0,
                             expert_w3_bias_address_1,
                             expert_w3_bias_address_2,
                             expert_w3_bias_address_3,
@@ -365,5 +428,103 @@ if __name__ == '__main__':
                             actual_out_address,
                             golden_address
                           ])
+
+    # Version 4
+    # pld.make_preload_elf("hbm_data_decode.elf", 
+    #                         [expert_w1_weights, 
+    #                         expert_w1_weights, 
+    #                         expert_w1_weights, 
+    #                         expert_w1_weights, 
+    #                         expert_w1_bias, 
+    #                         expert_w1_bias, 
+    #                         expert_w1_bias, 
+    #                         expert_w1_bias, 
+                            
+    #                         expert_w3_weights, 
+    #                         expert_w3_weights, 
+    #                         expert_w3_weights, 
+    #                         expert_w3_weights, 
+    #                         expert_w3_bias, 
+    #                         expert_w3_bias, 
+    #                         expert_w3_bias, 
+    #                         expert_w3_bias, 
+                            
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         expert_w2_weights, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+    #                         experts_w2_bias, 
+                            
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+    #                         gate_weights,
+                            
+    #                         in_token,
+    #                         actual_out, 
+    #                         golden], 
+    #                         [expert_w1_weights_address_0,
+    #                         expert_w1_weights_address_1,
+    #                         expert_w1_weights_address_2,
+    #                         expert_w1_weights_address_3,
+    #                         expert_w1_bias_address_0,
+    #                         expert_w1_bias_address_1,
+    #                         expert_w1_bias_address_2,
+    #                         expert_w1_bias_address_3,
+                            
+    #                         expert_w3_weights_address_4,
+    #                         expert_w3_weights_address_5,
+    #                         expert_w3_weights_address_6,
+    #                         expert_w3_weights_address_7,
+    #                         expert_w3_bias_address_4,
+    #                         expert_w3_bias_address_5,
+    #                         expert_w3_bias_address_6,
+    #                         expert_w3_bias_address_7,
+                            
+    #                         expert_w2_weights_address_0,
+    #                         expert_w2_weights_address_1,
+    #                         expert_w2_weights_address_2,
+    #                         expert_w2_weights_address_3,
+    #                         expert_w2_weights_address_4,
+    #                         expert_w2_weights_address_5,
+    #                         expert_w2_weights_address_6,
+    #                         expert_w2_weights_address_7,
+    #                         expert_w2_bias_address_0,
+    #                         expert_w2_bias_address_1,
+    #                         expert_w2_bias_address_2,
+    #                         expert_w2_bias_address_3,
+    #                         expert_w2_bias_address_4,
+    #                         expert_w2_bias_address_5,
+    #                         expert_w2_bias_address_6,
+    #                         expert_w2_bias_address_7,
+                            
+    #                         gate_weights_address_0,
+    #                         gate_weights_address_1,
+    #                         gate_weights_address_2,
+    #                         gate_weights_address_3,
+    #                         gate_weights_address_4,
+    #                         gate_weights_address_5,
+    #                         gate_weights_address_6,
+    #                         gate_weights_address_7,
+                            
+    #                         in_token_address,
+    #                         actual_out_address,
+    #                         golden_address
+    #                       ])
 
 

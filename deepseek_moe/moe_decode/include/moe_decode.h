@@ -14,7 +14,6 @@
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 8
-#define HBM_NODE_ADDR_SPACE 0x04000000 // 64MB
 #define NUM_CLUSTER_X 4
 #define NUM_CLUSTER_Y 4
 
@@ -129,47 +128,47 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                 // cluster_offset = cluster_id / 4 * ARCH_HBM_NODE_ADDR_SPACE;
 
                 // Define regular access pattern for HBM nodes
-                // TODO: Remove hard-coded values
+                // TODO: Remove hard-coded values for scalability
                 cluster_offset = 0;
                 switch (cluster_id) {
                     case 0:
                     case 2:
-                        cluster_offset = 0 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = 0 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 5:
                     case 7:
-                        cluster_offset = 1 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = 1 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 8:
                     case 10:
-                        cluster_offset = 2 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = 2 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 13:
                     case 15:
-                        cluster_offset = 3 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = 3 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 4:
                     case 12:
-                        cluster_offset = HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);
                         break;
                     
                     case 1:
                     case 9:
-                        cluster_offset = HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + HBM_NODE_ADDR_SPACE;
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 6:
                     case 14:
-                        cluster_offset = HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 2 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 2 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
                     
                     case 3:
                     case 11:
-                        cluster_offset = HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 3 * HBM_NODE_ADDR_SPACE;
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 3 * ARCH_HBM_NODE_ADDR_SPACE;
                         break;
 
                     default:
@@ -826,7 +825,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // Gate 
     flex_global_barrier_xy();
     gemv(hbm_addr(in_token_addr), hbm_addr(gate_weights_addr), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_all);
-    flex_global_barrier_xy();
+    // flex_global_barrier_xy();
     // return;
     // top_k(hbm_addr(temp_token_0), hbm_addr(top_k_weights_addr), hbm_addr(top_k_indices_addr), n_activated_experts, n_routed_experts, n_token, cluster_all);
     // flex_global_barrier_xy();
@@ -873,7 +872,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         // apply_element_wise_2_in_const(temp_token_0, w_expert, temp_token_0, dim, n_token, mul_op);
         // add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
         // apply_element_wise_2_in(temp_token_0, actual_out_addr, actual_out_addr, dim, n_token, add_op);
-        flex_global_barrier_xy();
+        // flex_global_barrier_xy();
         
         // TEST
         i_expert++;
@@ -906,7 +905,7 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         
         // add to the output
         // add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
-        flex_global_barrier_xy();
+        // flex_global_barrier_xy();
     }
 }
 

@@ -3,6 +3,12 @@ hbm_pld:
 
 hbm_pld_gemv:
 	cd preload; python hbm_data_gemv.py
+	
+hbm_pld_decode:
+	cd preload; python hbm_data_decode.py
+
+local_hw:
+	cfg=$(abspath config/arch_NoC512.py) make -C ../ hw
 
 # Bypass prelaod to save time
 hs_moe:	
@@ -31,8 +37,6 @@ sw_moe_pld_pfto: hbm_pld
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ sw runv pfto
 
 # Decode
-hbm_decode:
-	cd preload; python hbm_data_decode.py
 
 hs_decode:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ hs run
@@ -46,8 +50,12 @@ hs_decode_pfto:
 sw_decode_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ sw runv pfto
 
+hs_decode_clean_pfto:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs runv pfto
+
 sw_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
+	
 
 # GEMV
 # hbm_gemv:
