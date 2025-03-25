@@ -43,16 +43,36 @@ int main(){
      *     bias: [1, inter_dim]
      */
     // Read the value preloaded into HBM
-    uint32_t in_token_offset =            0;
-    uint32_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
-    uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
-    uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
-    uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t in_token_offset =            0;
+    // uint32_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    // uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    // uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+
+    // W1 stored at the beginning of channel 0, 1, 2, 3
+    uint32_t expert_w1_weights_offset = 0;
+    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // W3 stored at the beginning of channel 4, 5, 6, 7
+    uint32_t expert_w3_weights_offset = 0;
+    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+
+    // W2 stored in all channels following the W1/W3
+    uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // Gate weights stored in all channels following the W2 bias
+    uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // All the other data stored in channel 0, following the gate weights
+    uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 
 #ifdef PRINT_DEBUG
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
@@ -168,13 +188,14 @@ int main(){
     
 #ifdef MOE_DECODE_H
     compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
-    // cluster_map_t activated_cluster;
-    // activated_cluster = 0x5A5A;
+    cluster_map_t activated_cluster;
+    activated_cluster = 0x5A5A;
     // activated_cluster = 0xFFFF;
     // top_k(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), hbm_addr(actual_out_offset + 128), n_activated_experts, n_routed_experts, n_token, activated_cluster);
     // gemv(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, n_token, n_routed_experts, zomem(0), activated_cluster);
     // flex_global_barrier_xy();
     // flex_global_barrier_xy();
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w1_bias_offset), activated_cluster);
     // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), 7168, 1, 2048, hbm_addr(expert_w1_bias_offset), activated_cluster);
     // activated_cluster = 0x0033;
     // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), 7168, 1, 2048, hbm_addr(expert_w2_bias_offset), activated_cluster);

@@ -13,12 +13,14 @@
 #define TILE_WIDTH 64
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
-#define ELEMENT_WISE_TILE_WIDTH 4
+#define ELEMENT_WISE_TILE_WIDTH 8
+#define NUM_CLUSTER_X 4
+#define NUM_CLUSTER_Y 4
 
 typedef void (*element_wise_op_1_in_t)(const fp16* input, fp16* output);
 typedef void (*element_wise_op_2_in_t)(const fp16* input1, const fp16* input2, fp16* output);
 typedef void (*element_wise_op_2_in_const_t)(const fp16* input1, const fp16* in_const, fp16* output);
-// NOTE: this parameter is designed for NUM_CLUSTER = 16
+// designed for NUM_CLUSTER = 16
 typedef uint16_t cluster_map_t;
 // 2.5 in float
 fp16 route_scale = (fp16)0x4100;
@@ -40,6 +42,8 @@ void silu_op(const fp16* input, fp16* output);
 void sigmoid_op(const fp16* input, fp16* output);
 void mul_op(const fp16* input1, const fp16* input2, fp16* output);
 void add_op(const fp16* input1, const fp16* input2, fp16* output);
+
+void broadcast_to_all_clusters(uint32_t dst_addr, uint32_t src_addr, uint32_t size);
 
 /**
  * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN).
@@ -121,7 +125,58 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                 }
                 
                 uint32_t cluster_offset;
-                cluster_offset = cluster_id / 4 * ARCH_HBM_NODE_ADDR_SPACE;
+                // cluster_offset = cluster_id / 4 * ARCH_HBM_NODE_ADDR_SPACE;
+
+                // Define regular access pattern for HBM nodes
+                // TODO: Remove hard-coded values for scalability
+                cluster_offset = 0;
+                switch (cluster_id) {
+                    case 0:
+                    case 2:
+                        cluster_offset = 0 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 5:
+                    case 7:
+                        cluster_offset = 1 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 8:
+                    case 10:
+                        cluster_offset = 2 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 13:
+                    case 15:
+                        cluster_offset = 3 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 4:
+                    case 12:
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);
+                        break;
+                    
+                    case 1:
+                    case 9:
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 6:
+                    case 14:
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 2 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+                    
+                    case 3:
+                    case 11:
+                        cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 3 * ARCH_HBM_NODE_ADDR_SPACE;
+                        break;
+
+                    default:
+                        cluster_offset = 0;
+                        break;
+                }
+                
+
                 // bK: inner loop tile computing partial sums
                 for (bK = 0; bK < K; bK += tile_width) {
                     k_tile = fmin(tile_width, K - bK);
@@ -716,14 +771,49 @@ void mul_op(const fp16* input1, const fp16* input2, fp16* output) {
     *output = float_to_fp16(fa * fb);
 }
 
+/**
+ * @brief 
+ * 
+ * @param dst_addr OFFSET in the TCDM of each cluster to store the broadcasted data
+ * @param src_addr Source address of the data to be broadcasted
+ * @param size 
+ */
+void broadcast_to_all_clusters(uint32_t dst_addr, uint32_t src_addr, uint32_t size) {
+    flex_global_barrier_xy();//Global barrier
+    FlexPosition pos = get_pos(flex_get_cluster_id());
+    
+    //do row-wise broadcast from cluster 0
+    if (flex_is_dm_core() && flex_get_cluster_id() == 0)
+    {
+        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        flex_dma_async_wait_all();
+    }
+
+    flex_global_barrier_xy();//Global barrier
+
+    // Do column-wise broadcast to all clusters
+    for (int cid = 0; cid < ARCH_NUM_CLUSTER_X; ++cid)
+    {
+        if (flex_is_dm_core() && flex_get_cluster_id() == cid)
+        {   
+            // Broadcast the data in the local TCDM to the entire column
+            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+        }
+        flex_global_barrier_xy();
+    }
+    flex_global_barrier_xy();
+}
+
 void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
-    cluster_coloring_0 = 0x5A5A;
-    cluster_coloring_1 = 0xA5A5;
+    cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
+    cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
     cluster_all = 0xFFFF;
+
+    // Temporary write-back locations
     uint32_t top_k_weights_addr, top_k_indices_addr;
     uint32_t temp_token_0, temp_token_1;
-    top_k_weights_addr = actual_out_addr + n_token * dim * DATA_SIZE_BYTES;
+    top_k_weights_addr = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);   // Applied (2 *) to follow the golden output
     top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
