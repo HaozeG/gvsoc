@@ -6,7 +6,7 @@
 #include "flex_dma_pattern.h"
 // #include "moe.h"
 #include "moe_decode.h"
-// #define PRINT_DEBUG 0
+// #define PRINT_DEBUG 1
 
 int main();
 int main(){
@@ -51,14 +51,35 @@ int main(){
     // uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 
     /** HBM placement version 3 */
+    // uint32_t expert_w1_weights_offset = 0;
+    // uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    // uint32_t gate_weights_offset = expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;    
+    // uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+
+    /** HBM placement version 4 */
+    // W1 stored at the beginning of channel 0, 1, 2, 3
     uint32_t expert_w1_weights_offset = 0;
     uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // W3 stored at the beginning of channel 4, 5, 6, 7
+    uint32_t expert_w3_weights_offset = 0;
+    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+
+    // W2 stored in all channels following the W1/W3
     uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
     uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
-    uint32_t gate_weights_offset = expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;    
+
+    // Gate weights stored in all channels following the W2 bias
+    uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // All the other data stored in channel 0, following the gate weights
+    uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
     uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
     uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 

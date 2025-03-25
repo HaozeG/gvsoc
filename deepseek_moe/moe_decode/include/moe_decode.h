@@ -809,9 +809,11 @@ void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
     cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
     cluster_all = 0xFFFF;
+
+    // Temporary write-back locations
     uint32_t top_k_weights_addr, top_k_indices_addr;
     uint32_t temp_token_0, temp_token_1;
-    top_k_weights_addr = actual_out_addr + n_token * dim * DATA_SIZE_BYTES;
+    top_k_weights_addr = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);   // Applied (2 *) to follow the golden output
     top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;

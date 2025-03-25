@@ -25,7 +25,7 @@ class ModelArgs:
     # moe
     # n_routed_experts: int = 256
     # n_routed_experts: int = 128
-    n_routed_experts: int = 32
+    n_routed_experts: int = 16
     # n_routed_experts: int = 8
     n_shared_experts: int = 1
     n_activated_experts: int = 8

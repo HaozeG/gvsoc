@@ -15,6 +15,7 @@
         "type_traits": "cpp",
         "tuple": "cpp",
         "compare": "cpp",
-        "cstdint": "cpp"
+        "cstdint": "cpp",
+        "flex_printf.h": "c"
     }
 }
