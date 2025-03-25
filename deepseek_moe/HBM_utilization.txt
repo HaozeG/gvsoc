@@ -115,7 +115,44 @@ DRAMSysRecordable7.controller0  AVG BW\IDLE:    425.52 Gb/s |  53.19 GB/s |  83.
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
 ====================================================================================
-Checkerboard, 64, gemv
+Checkerboard, 256, all
+====================================================================================
+
+DRAMSysRecordable0.controller0  Total Time:     574884 ns
+DRAMSysRecordable0.controller0  AVG BW:         204.17 Gb/s |  25.52 GB/s |  39.87 %
+DRAMSysRecordable0.controller0  AVG BW\IDLE:    385.99 Gb/s |  48.24 GB/s |  75.38 %
+DRAMSysRecordable0.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable1.controller0  Total Time:     574884 ns
+DRAMSysRecordable1.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable1.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable1.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable2.controller0  Total Time:     574884 ns
+DRAMSysRecordable2.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable2.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable2.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable3.controller0  Total Time:     574884 ns
+DRAMSysRecordable3.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable3.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable3.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable4.controller0  Total Time:     574884 ns
+DRAMSysRecordable4.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable4.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable4.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable5.controller0  Total Time:     574884 ns
+DRAMSysRecordable5.controller0  AVG BW:          99.40 Gb/s |  12.42 GB/s |  19.41 %
+DRAMSysRecordable5.controller0  AVG BW\IDLE:    432.44 Gb/s |  54.05 GB/s |  84.46 %
+DRAMSysRecordable5.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable6.controller0  Total Time:     574884 ns
+DRAMSysRecordable6.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
+DRAMSysRecordable6.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable6.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+DRAMSysRecordable7.controller0  Total Time:     574884 ns
+DRAMSysRecordable7.controller0  AVG BW:          98.49 Gb/s |  12.31 GB/s |  19.23 %
+DRAMSysRecordable7.controller0  AVG BW\IDLE:    434.66 Gb/s |  54.33 GB/s |  84.89 %
+DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
+
+====================================================================================
+Checkerboard, 64, decode but GEVM only
 ====================================================================================
 
 DRAMSysRecordable0.controller0  Total Time:     180155 ns
@@ -239,42 +276,48 @@ DRAMSysRecordable7.controller0  AVG BW:          55.20 Gb/s |   6.90 GB/s |  10.
 DRAMSysRecordable7.controller0  AVG BW\IDLE:    418.29 Gb/s |  52.28 GB/s |  81.69 %
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
-
 ====================================================================================
-Checkerboard, 256, all
+Checkerboard, full decode, w/o preload, token in TCDM
+#define TILE_WIDTH 64
+    uint16_t n_token = 1;
+    uint16_t dim = 1024;
+    uint16_t inter_dim = 512;
+    uint16_t n_routed_experts = 16;
+    uint16_t n_shared_experts = 1;
+    uint16_t n_activated_experts = 8;
 ====================================================================================
 
-DRAMSysRecordable0.controller0  Total Time:     574884 ns
-DRAMSysRecordable0.controller0  AVG BW:         204.17 Gb/s |  25.52 GB/s |  39.87 %
-DRAMSysRecordable0.controller0  AVG BW\IDLE:    385.99 Gb/s |  48.24 GB/s |  75.38 %
+DRAMSysRecordable0.controller0  Total Time:     381564 ns
+DRAMSysRecordable0.controller0  AVG BW:          87.53 Gb/s |  10.94 GB/s |  17.09 %
+DRAMSysRecordable0.controller0  AVG BW\IDLE:    238.86 Gb/s |  29.85 GB/s |  46.65 %
 DRAMSysRecordable0.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable1.controller0  Total Time:     574884 ns
-DRAMSysRecordable1.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable1.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable1.controller0  Total Time:     381564 ns
+DRAMSysRecordable1.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable1.controller0  AVG BW\IDLE:    352.58 Gb/s |  44.07 GB/s |  68.86 %
 DRAMSysRecordable1.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable2.controller0  Total Time:     574884 ns
-DRAMSysRecordable2.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable2.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable2.controller0  Total Time:     381564 ns
+DRAMSysRecordable2.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable2.controller0  AVG BW\IDLE:    353.77 Gb/s |  44.22 GB/s |  69.09 %
 DRAMSysRecordable2.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable3.controller0  Total Time:     574884 ns
-DRAMSysRecordable3.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable3.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable3.controller0  Total Time:     381564 ns
+DRAMSysRecordable3.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable3.controller0  AVG BW\IDLE:    343.99 Gb/s |  42.99 GB/s |  67.18 %
 DRAMSysRecordable3.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable4.controller0  Total Time:     574884 ns
-DRAMSysRecordable4.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable4.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable4.controller0  Total Time:     381564 ns
+DRAMSysRecordable4.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable4.controller0  AVG BW\IDLE:    310.62 Gb/s |  38.82 GB/s |  60.66 %
 DRAMSysRecordable4.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable5.controller0  Total Time:     574884 ns
-DRAMSysRecordable5.controller0  AVG BW:          99.40 Gb/s |  12.42 GB/s |  19.41 %
-DRAMSysRecordable5.controller0  AVG BW\IDLE:    432.44 Gb/s |  54.05 GB/s |  84.46 %
+DRAMSysRecordable5.controller0  Total Time:     381564 ns
+DRAMSysRecordable5.controller0  AVG BW:          75.57 Gb/s |   9.44 GB/s |  14.76 %
+DRAMSysRecordable5.controller0  AVG BW\IDLE:    331.76 Gb/s |  41.47 GB/s |  64.79 %
 DRAMSysRecordable5.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable6.controller0  Total Time:     574884 ns
-DRAMSysRecordable6.controller0  AVG BW:           0.00 Gb/s |   0.00 GB/s |   0.00 %
-DRAMSysRecordable6.controller0  AVG BW\IDLE:      -nan Gb/s |   -nan GB/s |   -nan %
+DRAMSysRecordable6.controller0  Total Time:     381564 ns
+DRAMSysRecordable6.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable6.controller0  AVG BW\IDLE:    333.71 Gb/s |  41.71 GB/s |  65.17 %
 DRAMSysRecordable6.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
-DRAMSysRecordable7.controller0  Total Time:     574884 ns
-DRAMSysRecordable7.controller0  AVG BW:          98.49 Gb/s |  12.31 GB/s |  19.23 %
-DRAMSysRecordable7.controller0  AVG BW\IDLE:    434.66 Gb/s |  54.33 GB/s |  84.89 %
+DRAMSysRecordable7.controller0  Total Time:     381564 ns
+DRAMSysRecordable7.controller0  AVG BW:          74.19 Gb/s |   9.27 GB/s |  14.49 %
+DRAMSysRecordable7.controller0  AVG BW\IDLE:    326.11 Gb/s |  40.76 GB/s |  63.69 %
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
 

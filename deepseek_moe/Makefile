@@ -50,8 +50,14 @@ hs_decode_pfto:
 sw_decode_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ sw runv pfto
 
+hs_decode_clean:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs run
+
 hs_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs runv pfto
+
+sw_decode_clean:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw run
 
 sw_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto

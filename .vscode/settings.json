@@ -16,6 +16,16 @@
         "tuple": "cpp",
         "compare": "cpp",
         "cstdint": "cpp",
-        "flex_printf.h": "c"
+        "flex_printf.h": "c",
+        "bitset": "c",
+        "rope": "c",
+        "slist": "c",
+        "format": "c",
+        "ranges": "c",
+        "span": "c",
+        "stacktrace": "c",
+        "regex": "c",
+        "valarray": "c",
+        "utility": "c"
     }
 }
