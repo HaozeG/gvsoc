@@ -10,6 +10,7 @@ NUM_CLUSTER_Y = 4
 DATA_SIZE_BYTES = 2
 
 if __name__ == '__main__':
+    np.random.seed(1)
     args = DeepseekMoE.ModelArgs()
     n_tokens = 1
     in_token = np.random.rand(n_tokens, args.dim).astype(np.float16)
@@ -109,7 +110,7 @@ if __name__ == '__main__':
     # expert_w3_bias_address = expert_w3_weights_address + expert_w3_weights.nbytes
     # actual_out_address = expert_w3_bias_address + expert_w3_bias.nbytes
     # golden_address = actual_out_address + actual_out.nbytes
-    # create a uint32 np array to store the addresses
+    # # create a uint32 np array to store the addresses
     # arg_in = np.array([in_token_address, n_tokens_address, dim_address, moe_inter_dim_address, n_routed_experts_address, n_shared_experts_address, n_activated_experts_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address], dtype=np.uint32)
     # addr = np.array([in_token_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address], dtype=np.uint32)
     # print args in hex
@@ -219,7 +220,7 @@ if __name__ == '__main__':
     ### END HBM data placement version 3 ###
     
     ### START HBM data placement version 4 ###
-    # W1 accessed by coloring 0, store in channel 0, 1, 2, 3
+    # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
     expert_w1_weights_address_4 = hbm_ch4_addr
     expert_w1_weights_address_5 = hbm_ch5_addr
     expert_w1_weights_address_6 = hbm_ch6_addr
@@ -229,7 +230,7 @@ if __name__ == '__main__':
     expert_w1_bias_address_6 = expert_w1_weights_address_6 + expert_w1_weights.nbytes
     expert_w1_bias_address_7 = expert_w1_weights_address_7 + expert_w1_weights.nbytes
     
-    # W3 accessed by coloring 1, store in channel 4, 5, 6, 7
+    # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
     expert_w3_weights_address_0 = hbm_ch0_addr
     expert_w3_weights_address_1 = hbm_ch1_addr
     expert_w3_weights_address_2 = hbm_ch2_addr
@@ -240,14 +241,14 @@ if __name__ == '__main__':
     expert_w3_bias_address_3 = expert_w3_weights_address_3 + expert_w3_weights.nbytes
     
     # W2 accessed by all clusters, store a copy in all channels
-    expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w1_bias.nbytes
-    expert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w1_bias.nbytes
-    expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w1_bias.nbytes
-    expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w1_bias.nbytes
-    expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w3_bias.nbytes
-    expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w3_bias.nbytes
-    expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w3_bias.nbytes
-    expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w3_bias.nbytes
+    expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
+    expert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
+    expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
+    expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w3_bias.nbytes
+    expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w1_bias.nbytes
+    expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w1_bias.nbytes
+    expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w1_bias.nbytes
+    expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w1_bias.nbytes
     expert_w2_bias_address_0 = expert_w2_weights_address_0 + expert_w2_weights.nbytes
     expert_w2_bias_address_1 = expert_w2_weights_address_1 + expert_w2_weights.nbytes
     expert_w2_bias_address_2 = expert_w2_weights_address_2 + expert_w2_weights.nbytes
