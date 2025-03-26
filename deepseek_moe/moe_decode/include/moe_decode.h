@@ -177,26 +177,26 @@ void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K
                         break;
                 }
                 
-                // TODO: verify this logic
-                // Assume clusters are arranged in an N×N grid.
-                const uint32_t N = NUM_CLUSTER_X; // For square grid, NUM_CLUSTER_X == NUM_CLUSTER_Y
-                uint32_t r = cluster_id / N;
-                uint32_t c = cluster_id % N;
-                uint32_t multiplier;
+                // // TODO: verify this logic
+                // // Assume clusters are arranged in an N×N grid.
+                // const uint32_t N = NUM_CLUSTER_X; // For square grid, NUM_CLUSTER_X == NUM_CLUSTER_Y
+                // uint32_t r = cluster_id / N;
+                // uint32_t c = cluster_id % N;
+                // uint32_t multiplier;
 
-                // Define two groups:
-                // Group 0: clusters where row and column have the same parity.
-                // Group 1: clusters where row and column have opposite parity.
-                if ((r & 1) == (c & 1)) {
-                    // For group 0, use the row index as the multiplier.
-                    multiplier = r;
-                }
-                else {
-                    // For group 1, use an offset base plus the column index.
-                    // The base is 2 * NUM_CLUSTER_Y + NUM_CLUSTER_X, which for square grids is 3 * N.
-                    multiplier = 3 * N + c;
-                }
-                cluster_offset = multiplier * ARCH_HBM_NODE_ADDR_SPACE;
+                // // Define two groups:
+                // // Group 0: clusters where row and column have the same parity.
+                // // Group 1: clusters where row and column have opposite parity.
+                // if ((r & 1) == (c & 1)) {
+                //     // For group 0, use the row index as the multiplier.
+                //     multiplier = r;
+                // }
+                // else {
+                //     // For group 1, use an offset base plus the column index.
+                //     // The base is 2 * NUM_CLUSTER_Y + NUM_CLUSTER_X, which for square grids is 3 * N.
+                //     multiplier = 3 * N + c;
+                // }
+                // cluster_offset = multiplier * ARCH_HBM_NODE_ADDR_SPACE;
                 
 
                 // bK: inner loop tile computing partial sums
