@@ -16,9 +16,11 @@ class ModelArgs:
     vocab_size: int = 129280
     # dim: int = 7168
     dim: int = 1024
+    # dim: int = 2048
     inter_dim: int = 18432
     # moe_inter_dim: int = 2048
     moe_inter_dim: int = 512
+    # moe_inter_dim: int = 1024
     n_layers: int = 61
     n_dense_layers: int = 3
     n_heads: int = 128

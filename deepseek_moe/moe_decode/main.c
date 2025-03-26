@@ -16,7 +16,9 @@ int main(){
     // Parameters below follows the configuration of MoE model used in preload
     uint16_t n_token = 1;
     uint16_t dim = 1024;
+    // uint16_t dim = 1536;
     uint16_t inter_dim = 512;
+    // uint16_t inter_dim = 768;
     uint16_t n_routed_experts = 16;
     uint16_t n_shared_experts = 1;
     uint16_t n_activated_experts = 8;
