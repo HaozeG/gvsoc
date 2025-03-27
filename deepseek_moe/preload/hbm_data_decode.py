@@ -10,6 +10,7 @@ NUM_CLUSTER_Y = 4
 DATA_SIZE_BYTES = 2
 
 if __name__ == '__main__':
+    np.random.seed(1)
     args = DeepseekMoE.ModelArgs()
     n_tokens = 1
     in_token = np.random.rand(n_tokens, args.dim).astype(np.float16)
@@ -239,15 +240,15 @@ if __name__ == '__main__':
     expert_w3_bias_address_2 = expert_w3_weights_address_2 + expert_w3_weights.nbytes
     expert_w3_bias_address_3 = expert_w3_weights_address_3 + expert_w3_weights.nbytes
     
-    # W2 accessed by all clusters, store a copy in all channels
-    expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w1_bias.nbytes
-    expert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w1_bias.nbytes
-    expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w1_bias.nbytes
-    expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w1_bias.nbytes
-    expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w3_bias.nbytes
-    expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w3_bias.nbytes
-    expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w3_bias.nbytes
-    expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w3_bias.nbytes
+    # W2 accessed by all clusters, store a copy in all channels    
+    expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
+    expert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
+    expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
+    expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w3_bias.nbytes
+    expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w1_bias.nbytes
+    expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w1_bias.nbytes
+    expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w1_bias.nbytes
+    expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w1_bias.nbytes
     expert_w2_bias_address_0 = expert_w2_weights_address_0 + expert_w2_weights.nbytes
     expert_w2_bias_address_1 = expert_w2_weights_address_1 + expert_w2_weights.nbytes
     expert_w2_bias_address_2 = expert_w2_weights_address_2 + expert_w2_weights.nbytes

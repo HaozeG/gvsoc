@@ -1,8 +1,8 @@
 hbm_pld:
 	cd preload; python hbm_data_MoE.py
 
-hbm_pld_gemv:
-	cd preload; python hbm_data_gemv.py
+# hbm_pld_gemv:
+# 	cd preload; python hbm_data_gemv.py
 	
 hbm_pld_decode:
 	cd preload; python hbm_data_decode.py
@@ -61,6 +61,13 @@ sw_decode_clean:
 
 sw_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
+
+# Centralized decode
+sw_decode_centralized:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/preload.elf) make -C ../ sw run
+
+sw_decode_centralized_pfto:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/preload.elf) make -C ../ sw runv pfto
 	
 
 # GEMV

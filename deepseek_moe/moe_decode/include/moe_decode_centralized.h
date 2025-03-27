@@ -1,5 +1,5 @@
-#ifndef MOE_DECODE_H
-#define MOE_DECODE_H
+#ifndef MOE_DECODE_CENTRALIZED_H
+#define MOE_DECODE_CENTRALIZED_H
 
 #include "flex_runtime.h"
 #include "flex_printf.h"
@@ -11,10 +11,7 @@
 // use float16 as data type
 #define DATA_SIZE_BYTES 2
 // Parameters for GEMV
-// TODO: designed such that TILE_WIDTH * 8 = width of output matrix
-// This is for dedicated preload data distribution to enable 1d DMA
 #define TILE_WIDTH 64
-// #define TILE_WIDTH 256
 #define OPAND_SIZE TILE_WIDTH * TILE_WIDTH * DATA_SIZE_BYTES
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 4
@@ -22,30 +19,28 @@
 typedef void (*element_wise_op_1_in_t)(const fp16* input, fp16* output);
 typedef void (*element_wise_op_2_in_t)(const fp16* input1, const fp16* input2, fp16* output);
 typedef void (*element_wise_op_2_in_const_t)(const fp16* input1, const fp16* in_const, fp16* output);
-// NOTE: designed for NUM_CLUSTER <= 16
+// NOTE: this parameter is designed for NUM_CLUSTER = 16
 typedef uint16_t cluster_map_t;
 // 2.5 in float
 fp16 route_scale = (fp16)0x4100;
 
-void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr);
-void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K, const uint16_t M, const uint16_t N, const uint64_t bias_addr, cluster_map_t cluster_map);
-void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void silu(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void sigmoid(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void add(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void dot_product(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
-void dot_product_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr);
+void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map);
+void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void normalize(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void add(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void dot_product(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
+void dot_product_const(const uint32_t in_addr, const fp16 in_addr_const, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map);
 
-void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map);
-void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map);
-void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map);
+void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in_const(const uint32_t in_addr, const fp16 in_const, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in(const uint32_t in_addr1, const uint32_t in_addr2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map);
 void silu_op(const fp16* input, fp16* output);
 void sigmoid_op(const fp16* input, fp16* output);
 void mul_op(const fp16* input1, const fp16* input2, fp16* output);
 void add_op(const fp16* input1, const fp16* input2, fp16* output);
-
-void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size);
 
 /**
  * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN).
@@ -59,7 +54,7 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
  * @param bias_addr address of bias matrix. shaped as [1, N], added to each row of the output 
  * @param cluster_map activated cluster map for computation 
  */
-void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K, const uint16_t M, const uint16_t N, const uint64_t bias_addr, cluster_map_t cluster_map) {
+void gemv(const uint32_t A, const uint32_t B, const uint32_t C, const uint32_t K, const uint32_t M, const uint32_t N, const uint32_t bias_addr, cluster_map_t cluster_map) {
     if (0 == M || 0 == N || 0 == K) {
         return;
     }
@@ -98,67 +93,6 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
         int gi = 0;
         int gj = local_cluster_id;
 
-        // Define regular access pattern for HBM nodes
-        uint64_t cluster_offset;
-        uint32_t cluster_id_x = cluster_id % ARCH_NUM_CLUSTER_X;
-        uint32_t cluster_id_y = cluster_id / ARCH_NUM_CLUSTER_X;
-        if (1 == ((cluster_id_x % 2) ^ (cluster_id_y % 2))) {
-            // cluster_id_x, cluster_id_y has different parity: access south HBM nodes
-            cluster_offset = (2 * ARCH_NUM_CLUSTER_Y + ARCH_NUM_CLUSTER_X) * ARCH_HBM_NODE_ADDR_SPACE + (cluster_id % ARCH_NUM_CLUSTER_X) * ARCH_HBM_NODE_ADDR_SPACE;
-        } else {
-            // cluster_id_x, cluster_id_y has the same parity: access west HBM nodes
-            cluster_offset = (cluster_id / ARCH_NUM_CLUSTER_X) * ARCH_HBM_NODE_ADDR_SPACE;
-        }
-
-        // Hardcoded version for 4x4 grid
-        // cluster_offset = 0;
-        // switch (cluster_id) {
-        //     case 0:
-        //     case 2:
-        //         cluster_offset = 0 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 5:
-        //     case 7:
-        //         cluster_offset = 1 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 8:
-        //     case 10:
-        //         cluster_offset = 2 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 13:
-        //     case 15:
-        //         cluster_offset = 3 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 4:
-        //     case 12:
-        //         cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X);
-        //         break;
-            
-        //     case 1:
-        //     case 9:
-        //         cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 6:
-        //     case 14:
-        //         cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 2 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-            
-        //     case 3:
-        //     case 11:
-        //         cluster_offset = ARCH_HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X) + 3 * ARCH_HBM_NODE_ADDR_SPACE;
-        //         break;
-
-        //     default:
-        //         cluster_offset = 0;
-        //         break;
-        // }
-
-        // i: row number
         // i: row number
         for (int i = 0; i < (M - 1) / block_width_i + 1; i++) {
             // j: colomn number
@@ -179,7 +113,7 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                         flex_dma_async_1d(local(accumulator), zomem(0), m_tile * n_tile * DATA_SIZE_BYTES);
                         flex_dma_async_wait_all();
                     } else {
-                        flex_dma_sync_2d(local(accumulator), bias_addr + (gj * tile_width + j * block_width_j) * DATA_SIZE_BYTES + cluster_offset, n_tile*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, 0, m_tile);
+                        flex_dma_sync_2d(local(accumulator), bias_addr + (gj * tile_width + j * block_width_j) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES, 0, m_tile);
                     }
                 }
                 if(flex_is_first_core()) {
@@ -187,13 +121,15 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                     flex_redmule_config(m_tile, tile_width, n_tile);
                 }
                 
+                // uint32_t cluster_offset;
+                // cluster_offset = cluster_id / 4 * ARCH_HBM_NODE_ADDR_SPACE;
                 // bK: inner loop tile computing partial sums
                 for (bK = 0; bK < K; bK += tile_width) {
                     k_tile = fmin(tile_width, K - bK);
 
                     // SoftHier_HBM -> SoftHier_TCDM 2D
                     if(flex_is_dm_core()) {
-                        uint64_t load_dest_A, load_dest_B;
+                        uint32_t load_dest_A, load_dest_B;
                         if (is_odd) {
                             load_dest_A = local_A_0;
                             load_dest_B = local_B_0;
@@ -202,7 +138,7 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                             load_dest_B = local_B_1;
                         }
                         flex_dma_sync_2d(local(load_dest_A), A + ((K * (tile_width * gi + i * block_width_i)) + bK) * DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, K*DATA_SIZE_BYTES, m_tile);
-                        flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES + cluster_offset, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
+                        flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
                     }
                     
                     // make sure data is ready
@@ -308,15 +244,15 @@ void quickselect(uint16_t* arr, uint16_t* indices, int left, int right, int k) {
 /**
  * @brief Select top k values from each row of the input matrix and write the result to the output matrix along with the corresponding indices.
  * 
- * @param in_addr in HBM
- * @param out_value_addr can be in TCDM or HBM
- * @param out_index_addr can be in TCDM or HBM
+ * @param in_addr 
+ * @param out_value_addr 
+ * @param out_index_addr 
  * @param k top k values to select (less than 64)
  * @param n_routed_expert number of candidate values in each row of the input matrix
  * @param n_token number of rows in the input matrix
  * @param cluster_map
  */
-void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t n_routed_expert, const uint16_t n_token, cluster_map_t cluster_map) {
+void top_k(const uint32_t in_addr, const uint32_t out_value_addr, const uint32_t out_index_addr, const uint32_t k, const uint32_t n_routed_expert, const uint32_t n_token, cluster_map_t cluster_map) {
     if (0 == k || 0 == n_routed_expert || 0 == n_token || k > 16) {
         return;
     }
@@ -337,7 +273,7 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
             }
         }
         uint32_t i_row_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER;
-        uint32_t transfer_rows;
+        uint16_t transfer_rows;
 
         uint32_t local_out_value, local_out_indices, local_in;
         local_out_value = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
@@ -414,13 +350,13 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
 /**
  * @brief normalize the input matrix along rows. Consider dim here to be small, just use the simplist way to implement it.
  * 
- * @param in_addr can be in TCDM or HBM
- * @param out_addr can be in TCDM or HBM
+ * @param in_addr 
+ * @param out_addr 
  * @param dim colomn dimension of the input matrix
  * @param n_token row dimension of the input matrix
  * @param cluster_map
  */
-void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void normalize(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     if (0 == dim || 0 == n_token) {
         return;
     }
@@ -492,13 +428,13 @@ void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t d
 /**
  * @brief apply element-wise operation on ONE INPUT matrix. Each core processes ELEMENT_WISE_TILE_WIDTH elements at a time.
  * 
- * @param in_addr can be in TCDM or HBM
- * @param out_addr can be in TCDM or HBM
+ * @param in_addr 
+ * @param out_addr 
  * @param dim 
  * @param n_token 
  * @param op element_wise_op_t function pointer
  */
-void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map) {
+void apply_element_wise_1_in(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map) {
     if (0 == dim || 0 == n_token || NULL == op) {
         return;
     }
@@ -567,7 +503,7 @@ void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, co
  * @param op element_wise_op_t function pointer
  * @param cluster_map
  */
-void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map) {
+void apply_element_wise_2_in(const uint32_t in_addr1, const uint32_t in_addr2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map) {
     if (0 == dim || 0 == n_token || NULL == op) {
         return;
     }
@@ -635,7 +571,7 @@ void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, c
  * @param op element_wise_op_t function pointer
  * @param cluster_map
  */
-void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map) {
+void apply_element_wise_2_in_const(const uint32_t in_addr, const fp16 in_const, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map) {
     if (0 == dim || 0 == n_token || NULL == op) {
         return;
     }
@@ -699,7 +635,7 @@ void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, 
  * @param n_token 
  * @param cluster_map
  */
-void silu(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void silu(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     apply_element_wise_1_in(in_addr, out_addr, dim, n_token, silu_op, cluster_map); 
 }
 
@@ -712,7 +648,7 @@ void silu(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, c
  * @param n_token 
  * @param cluster_map
  */
-void sigmoid(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void sigmoid(const uint32_t in_addr, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     apply_element_wise_1_in(in_addr, out_addr, dim, n_token, sigmoid_op, cluster_map); 
 }
 
@@ -726,7 +662,7 @@ void sigmoid(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim
  * @param n_token 
  * @param cluster_map
  */
-void dot_product(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void dot_product(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     apply_element_wise_2_in(in_addr_1, in_addr_2, out_addr, dim, n_token, mul_op, cluster_map);
 }
 
@@ -740,7 +676,7 @@ void dot_product(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint6
  * @param n_token 
  * @param cluster_map
  */
-void dot_product_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void dot_product_const(const uint32_t in_addr, const fp16 in_const, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     apply_element_wise_2_in_const(in_addr, in_const, out_addr, dim, n_token, mul_op, cluster_map);
 }
 
@@ -754,7 +690,7 @@ void dot_product_const(const uint64_t in_addr, const fp16 in_const, const uint64
  * @param n_token 
  * @param cluster_map
  */
-void add(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+void add(const uint32_t in_addr_1, const uint32_t in_addr_2, const uint32_t out_addr, const uint32_t dim, const uint32_t n_token, cluster_map_t cluster_map) {
     apply_element_wise_2_in(in_addr_1, in_addr_2, out_addr, dim, n_token, add_op, cluster_map);
 }
 
@@ -781,68 +717,14 @@ void mul_op(const fp16* input1, const fp16* input2, fp16* output) {
     *output = float_to_fp16(fa * fb);
 }
 
-/**
- * @brief 
- * 
- * @param dst_addr OFFSET in the TCDM of each cluster to store the broadcasted data
- * @param src_addr Source address of the data to be broadcasted
- * @param size 
- */
-void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size) {
-    flex_global_barrier_xy();//Global barrier
-    FlexPosition pos = get_pos(flex_get_cluster_id());
-    
-    //do row-wise broadcast from cluster 0
-    if (flex_is_dm_core() && flex_get_cluster_id() == 0)
-    {
-        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
-        flex_dma_async_wait_all();
-    }
-
-    flex_global_barrier_xy();//Global barrier
-
-    // Do column-wise broadcast to all clusters
-    for (int cid = 0; cid < ARCH_NUM_CLUSTER_X; ++cid)
-    {
-        if (flex_is_dm_core() && flex_get_cluster_id() == cid)
-        {   
-            // Broadcast the data in the local TCDM to the entire column
-            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
-        }
-        flex_global_barrier_xy();
-    }
-    flex_global_barrier_xy();
-}
-
-void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr) {
+void compute_moe(uint32_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_t inter_dim, uint16_t n_routed_experts, uint16_t n_shared_experts, uint16_t n_activated_experts, uint32_t gate_weights_addr, uint32_t expert_w1_weights_addr, uint32_t expert_w1_bias_addr, uint32_t expert_w2_weights_addr, uint32_t expert_w2_bias_addr, uint32_t expert_w3_weights_addr, uint32_t expert_w3_bias_addr, uint32_t actual_out_addr) {
     cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
-    cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
-    cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
+    cluster_coloring_0 = 0x5A5A;
+    cluster_coloring_1 = 0xA5A5;
     cluster_all = 0xFFFF;
-
-
-    // Broadcast the input token to all clusters
-    uint32_t local_token_offset, local_token_addr, token_size;
-    local_token_offset = 0;
-    local_token_addr = local(local_token_offset);
-    token_size = n_token * dim * DATA_SIZE_BYTES;
-    broadcast_to_all_clusters(local_token_offset, hbm_addr(in_token_addr), token_size);
-
-    // TCDM offsets of intermediate write-back
-    uint32_t temp_token_0_tcdm, temp_token_1_tcdm;
-    temp_token_0_tcdm = local_token_offset + token_size;
-    temp_token_1_tcdm = temp_token_0_tcdm + n_token * dim * DATA_SIZE_BYTES;
-
-    // TCDM offsets for top_k results
-    // TODO: local TCDM corruption might occur, becareful when keeping too much results in TCDM. Verification needed.
-    uint32_t top_k_weights_tcdm, top_k_indices_tcdm;
-    top_k_weights_tcdm = temp_token_1_tcdm + n_token * dim * DATA_SIZE_BYTES;
-    top_k_indices_tcdm = top_k_weights_tcdm + n_token * n_activated_experts * DATA_SIZE_BYTES;
-
-    // Temporary write-back locations
-    uint64_t top_k_weights_addr, top_k_indices_addr;
-    uint64_t temp_token_0, temp_token_1;
-    top_k_weights_addr = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);   // Applied (2 *) to follow the golden output
+    uint32_t top_k_weights_addr, top_k_indices_addr;
+    uint32_t temp_token_0, temp_token_1;
+    top_k_weights_addr = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);
     top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
     temp_token_1 = temp_token_0 + n_token * dim * DATA_SIZE_BYTES;
@@ -855,25 +737,15 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     // }
     // flex_global_barrier_xy();
     // Gate 
-    // gemv(hbm_addr(in_token_addr), hbm_addr(gate_weights_addr), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_coloring_0, 0);
-    gemv(local_token_addr, hbm_addr(gate_weights_addr), local(temp_token_0_tcdm), dim, n_token, n_routed_experts, zomem(0), cluster_coloring_0);
-    // flex_global_barrier_xy();
-    // top_k(hbm_addr(temp_token_0), hbm_addr(top_k_weights_addr), hbm_addr(top_k_indices_addr), n_activated_experts, n_routed_experts, n_token, cluster_all);
-    top_k(local(temp_token_0_tcdm), hbm_addr(top_k_weights_addr), hbm_addr(top_k_indices_addr), n_activated_experts, n_routed_experts, n_token, cluster_all);
+    gemv(hbm_addr(in_token_addr), hbm_addr(gate_weights_addr), hbm_addr(temp_token_0), dim, n_token, n_routed_experts, zomem(0), cluster_all);
+    flex_global_barrier_xy();
+    top_k(hbm_addr(temp_token_0), hbm_addr(top_k_weights_addr), hbm_addr(top_k_indices_addr), n_activated_experts, n_routed_experts, n_token, cluster_all);
     flex_global_barrier_xy();
     // sigmoid
     sigmoid(hbm_addr(top_k_weights_addr), hbm_addr(top_k_weights_addr), n_activated_experts, n_token, cluster_all);
     flex_global_barrier_xy();
     // normalize
     normalize(hbm_addr(top_k_weights_addr), hbm_addr(top_k_weights_addr), n_activated_experts, n_token, cluster_all);
-    flex_global_barrier_xy();
-
-    // load computed top k weights and indices into TCDM
-    if (flex_is_dm_core()) {
-        flex_dma_async_1d(local(top_k_weights_tcdm), hbm_addr(top_k_weights_addr), n_token * n_activated_experts * DATA_SIZE_BYTES);
-        flex_dma_async_1d(local(top_k_indices_tcdm), hbm_addr(top_k_indices_addr), n_token * n_activated_experts * DATA_SIZE_BYTES);
-        flex_dma_async_wait_all();
-    }
     flex_global_barrier_xy();
     
     // Routed experts
@@ -882,74 +754,59 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     fp16 w_expert;
     int i = 0;
     while (i < n_activated_experts) {
-        // i_expert = ((uint16_t *)(hbm_addr(top_k_indices_addr)))[i];
-        // w_expert = ((fp16 *)(hbm_addr(top_k_weights_addr)))[i];
-        i_expert = ((uint16_t *)(local(top_k_indices_tcdm)))[i];
-        w_expert = ((fp16 *)(local(top_k_weights_tcdm)))[i];
+        i_expert = ((uint16_t *)(hbm_addr(top_k_indices_addr)))[i];
+        w_expert = ((fp16 *)(hbm_addr(top_k_weights_addr)))[i];
         // if (0 == flex_get_cluster_id() && flex_is_first_core()) {
         //     printf("[ROUTED EXPERTS] expert_id = %d, expert_weight = 0x%04x\n", i_expert, w_expert);
         // }
+        // flex_global_barrier_xy();
         mul_op(&w_expert, &route_scale, &w_expert);
         // w1.forward(x)
-        // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, 0);
-        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
-        
+        gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
         // w3.forward(x)
-        // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, 0);
-        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
-        // flex_global_barrier_xy();
+        gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
+        
+        flex_global_barrier_xy();
         // silu(w1.forward(x))
-        // silu(hbm_addr(temp_token_0), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
-        silu(local(temp_token_0_tcdm), local(temp_token_0_tcdm), inter_dim, n_token, cluster_all);
+        silu(hbm_addr(temp_token_0), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
         // flex_global_barrier_xy();
         // silu(w1.forward(x)) * w3.forward(x)
-        // dot_product(hbm_addr(temp_token_0), hbm_addr(temp_token_1), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
-        dot_product(local(temp_token_0_tcdm), local(temp_token_1_tcdm), local(temp_token_0_tcdm), inter_dim, n_token, cluster_all);
+        dot_product(hbm_addr(temp_token_0), hbm_addr(temp_token_1), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
         
         flex_global_barrier_xy();
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
-        // gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
-        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
+        gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
         
-        // multiply by gate weight and add to the output
-        // dot_product_const(hbm_addr(temp_token_0), w_expert, hbm_addr(temp_token_0), dim, n_token, cluster_all);
-        // add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
-        dot_product_const(local(temp_token_0_tcdm), w_expert, local(temp_token_0_tcdm), dim, n_token, cluster_all);
-        add(local(temp_token_0_tcdm), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
         flex_global_barrier_xy();
-
+        // multiply by gate weight and add to the output
+        dot_product_const(hbm_addr(temp_token_0), w_expert, hbm_addr(temp_token_0), dim, n_token, cluster_all);
+        add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
+        flex_global_barrier_xy();
         i++;
     }
-        
     // Shared experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
     for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
         // w1.forward(x)
-        // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, 0);
-        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
+        gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0);
         
         // w3.forward(x)
-        // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, 0);
-        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
+        gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1);
         
-        // flex_global_barrier_xy();
+        flex_global_barrier_xy();
         // silu(w1.forward(x))
-        // silu(hbm_addr(temp_token_0), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
-        silu(local(temp_token_0_tcdm), local(temp_token_0_tcdm), inter_dim, n_token, cluster_all);
+        silu(hbm_addr(temp_token_0), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
         // flex_global_barrier_xy();
         // silu(w1.forward(x)) * w3.forward(x)
-        // dot_product(hbm_addr(temp_token_0), hbm_addr(temp_token_1), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
-        dot_product(local(temp_token_0_tcdm), local(temp_token_1_tcdm), local(temp_token_0_tcdm), inter_dim, n_token, cluster_all);
+        dot_product(hbm_addr(temp_token_0), hbm_addr(temp_token_1), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
         
         flex_global_barrier_xy();
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
-        // gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
-        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
+        gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all);
         
         flex_global_barrier_xy();
         // add to the output
-        // add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
-        add(local(temp_token_0_tcdm), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
+        add(hbm_addr(temp_token_0), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);
         flex_global_barrier_xy();
     }
 }
