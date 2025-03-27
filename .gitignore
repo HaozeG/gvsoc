@@ -21,3 +21,4 @@ soft_hier/flex_cluster_sdk/runtime/include/flex_cluster_arch.*
 dump*
 deepseek_moe/scratchpad.txt
 deepseek_moe/HBM_utilization.txt
+deepseek_moe/out_dump.txt

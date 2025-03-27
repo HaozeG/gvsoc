@@ -26,6 +26,7 @@
         "stacktrace": "c",
         "regex": "c",
         "valarray": "c",
-        "utility": "c"
+        "utility": "c",
+        "moe_decode_centralized.h": "c"
     }
 }

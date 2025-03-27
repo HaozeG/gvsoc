@@ -152,7 +152,7 @@ DRAMSysRecordable7.controller0  AVG BW\IDLE:    434.66 Gb/s |  54.33 GB/s |  84.
 DRAMSysRecordable7.controller0  MAX BW:         512.00 Gb/s |  64.00 GB/s | 100.00 %
 
 ====================================================================================
-Checkerboard, 64, decode but GEVM only
+Checkerboard, 64, decode but GEMV only
 #define TILE_WIDTH 64
     uint16_t n_token = 1;
     uint16_t dim = 1024;

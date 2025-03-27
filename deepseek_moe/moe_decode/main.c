@@ -7,7 +7,7 @@
 // #include "moe.h"
 // #include "moe_decode_centralized.h"
 #include "moe_decode.h"
-// #define PRINT_DEBUG 0
+#define PRINT_DEBUG 0
 
 int main();
 int main(){
