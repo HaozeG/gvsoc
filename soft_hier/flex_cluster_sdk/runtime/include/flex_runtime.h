@@ -2,6 +2,7 @@
 #define _FLEX_RUNTIME_H_
 #include <stdint.h>
 #include "flex_cluster_arch.h"
+#include "flex_alloc.h"
 
 #define ARCH_NUM_CLUSTER            (ARCH_NUM_CLUSTER_X*ARCH_NUM_CLUSTER_Y)
 #define cluster_index(x,y)          ((y)*ARCH_NUM_CLUSTER_X+(x))
@@ -10,11 +11,11 @@
 #define remote_cid(cid,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cid*ARCH_CLUSTER_TCDM_SIZE+offset)
 #define remote_xy(x,y,offset)       (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(x,y)*ARCH_CLUSTER_TCDM_SIZE+offset)
 #define remote_pos(pos,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(pos.x,pos.y)*ARCH_CLUSTER_TCDM_SIZE+offset)
-#define hbm_addr(offset)            (ARCH_HBM_START_BASE+offset)
-#define hbm_west(nid,offset)        (ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+offset)
-#define hbm_north(nid,offset)       (ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_Y+offset)
-#define hbm_east(nid,offset)        (ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*(ARCH_NUM_CLUSTER_Y+ARCH_NUM_CLUSTER_X)+offset)
-#define hbm_south(nid,offset)       (ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*2*ARCH_NUM_CLUSTER_Y+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_X+offset)
+#define hbm_addr(offset)            ((uint64_t)ARCH_HBM_START_BASE+offset)
+#define hbm_west(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+offset)
+#define hbm_north(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_Y+offset)
+#define hbm_east(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*(ARCH_NUM_CLUSTER_Y+ARCH_NUM_CLUSTER_X)+offset)
+#define hbm_south(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*2*ARCH_NUM_CLUSTER_Y+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_X+offset)
 #define is_hbm_region(addr)         (addr >= ARCH_HBM_START_BASE)
 
 /*******************
@@ -96,6 +97,29 @@ uint32_t flex_is_first_core(){
     uint32_t hartid;
     asm volatile("csrr %0, mhartid" : "=r"(hartid));
     return (hartid == 0);
+}
+
+/********************
+*  Data Allocation  *
+********************/
+
+// Back-adaptation for other config fills to pass CI
+#ifndef ARCH_CLUSTER_HEAP_BASE
+#define ARCH_CLUSTER_HEAP_BASE (0x00000000)
+#define ARCH_CLUSTER_HEAP_END  (0x00000000)
+#endif
+
+/*
+ * Desc: cluster-private heap allocator initialization
+ */
+
+void flex_alloc_init(){
+    volatile uint32_t * heap_start      = (volatile uint32_t *) ARCH_CLUSTER_HEAP_BASE;
+    volatile uint32_t * heap_end        = (volatile uint32_t *) ARCH_CLUSTER_HEAP_END;
+    volatile uint32_t   heap_size       = (uint32_t)heap_end - (uint32_t)heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_l1(), (void *)heap_start, heap_size);
+    }
 }
 
 /*******************
