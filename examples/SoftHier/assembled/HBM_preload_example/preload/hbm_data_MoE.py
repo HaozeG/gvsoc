@@ -5,6 +5,7 @@ import numpy as np
 import preload as pld
 
 if __name__ == '__main__':
+    np.random.seed(1)
     args = DeepseekMoE.ModelArgs()
     n_tokens = 1
     in_token = np.random.rand(n_tokens, args.dim).astype(np.float16)
@@ -88,6 +89,18 @@ if __name__ == '__main__':
     # arg_in = np.array([in_token_address, n_tokens_address, dim_address, moe_inter_dim_address, n_routed_experts_address, n_shared_experts_address, n_activated_experts_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address], dtype=np.uint32)
     addr = np.array([in_token_address, gate_weights_address, expert_w1_weights_address, expert_w1_bias_address, expert_w2_weights_address, expert_w2_bias_address, expert_w3_weights_address, expert_w3_bias_address, actual_out_address, golden_address], dtype=np.uint32)
     # print args in hex
+
+    print("token size: ", in_token.nbytes)
+    print("gate_weights size: ", gate_weights.nbytes)
+    print("expert_w1_weights size: ", expert_w1_weights.nbytes)
+    print("expert_w1_bias size: ", expert_w1_bias.nbytes)
+    print("expert_w2_weights size: ", expert_w2_weights.nbytes)
+    print("experts_w2_bias size: ", experts_w2_bias.nbytes)
+    print("expert_w3_weights size: ", expert_w3_weights.nbytes)
+    print("expert_w3_bias size: ", expert_w3_bias.nbytes)
+    print("actual_out size: ", actual_out.nbytes)
+    print("golden size: ", golden.nbytes)
+    print("total size: ", in_token.nbytes + gate_weights.nbytes + expert_w1_weights.nbytes + expert_w1_bias.nbytes + expert_w2_weights.nbytes + experts_w2_bias.nbytes + expert_w3_weights.nbytes + expert_w3_bias.nbytes + actual_out.nbytes + golden.nbytes)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     pld.make_preload_elf(script_dir+"/preload.elf", [in_token, gate_weights, expert_w1_weights, expert_w1_bias, expert_w2_weights, experts_w2_bias, expert_w3_weights, expert_w3_bias, actual_out, golden], addr)

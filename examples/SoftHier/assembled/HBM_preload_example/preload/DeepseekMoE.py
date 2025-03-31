@@ -24,11 +24,12 @@ class ModelArgs:
     n_heads: int = 128
     # moe
     # n_routed_experts: int = 256
-    # n_routed_experts: int = 16
-    n_routed_experts: int = 8
+    # n_routed_experts: int = 128
+    n_routed_experts: int = 16
+    # n_routed_experts: int = 8
     n_shared_experts: int = 1
-    # n_activated_experts: int = 8
-    n_activated_experts: int = 4
+    n_activated_experts: int = 8
+    # n_activated_experts: int = 4
     n_expert_groups: int = 8
     n_limited_groups: int = 4
     score_func: Literal["softmax", "sigmoid"] = "sigmoid"
