@@ -47,8 +47,10 @@ void silu_op(const fp16* input, fp16* output);
 void sigmoid_op(const fp16* input, fp16* output);
 void mul_op(const fp16* input1, const fp16* input2, fp16* output);
 void add_op(const fp16* input1, const fp16* input2, fp16* output);
+uint32_t min(uint32_t a, uint32_t b);
 
 void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size);
+
 
 uint32_t min(uint32_t a, uint32_t b) {
     return (a < b) ? a : b;
@@ -306,10 +308,9 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
         local_out_indices += core_id * k * DATA_SIZE_BYTES;
         local_out_value += core_id * k * DATA_SIZE_BYTES;
 
-        // Allocate an array for indices
-        uint16_t indices[256]; // Should be large enough for n_routed_expert
-
         while (i_row_cluster < n_token) {
+            // Allocate an array for indices
+            uint16_t indices[256]; // Should be large enough for n_routed_expert
             // one dma transfer per cluster
             transfer_rows = min(ARCH_NUM_CORE_PER_CLUSTER, n_token - i_row_cluster);
 
@@ -324,31 +325,32 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
             if ((i_row_cluster + core_id) < n_token) {
                 // Initialize index array
                 for (int i = 0; i < n_routed_expert; i++) {
+                    printf("");
                     indices[i] = i;
                 }
                 
                 // Quickselect to partition the array so that the k largest elements are at the beginning
                 quickselect((uint16_t*)local(local_in), indices, 0, n_routed_expert - 1, k - 1);
                 
-                // Sort the top k elements (if needed for fully sorted output)
-                // Simple insertion sort for the small k values
-                for (int i = 1; i < k; i++) {
-                    uint16_t key_val = ((uint16_t *)local(local_in))[i];
-                    uint16_t key_idx = indices[i];
-                    int j = i - 1;
+                // // Sort the top k elements (if needed for fully sorted output)
+            //     // Simple insertion sort for the small k values
+            //     for (int i = 1; i < k; i++) {
+            //         uint16_t key_val = ((uint16_t *)local(local_in))[i];
+            //         uint16_t key_idx = indices[i];
+            //         int j = i - 1;
                     
-                    while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
-                        ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
-                        indices[j + 1] = indices[j];
-                        j--;
-                    }
+            //         while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
+            //             ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
+            //             indices[j + 1] = indices[j];
+            //             j--;
+            //         }
                     
-                    ((uint16_t *)local(local_in))[j + 1] = key_val;
-                    indices[j + 1] = key_idx;
-                }
-                
+            //         ((uint16_t *)local(local_in))[j + 1] = key_val;
+            //         indices[j + 1] = key_idx;
+            //     }
                 // Copy to output buffers
                 for (int i = 0; i < k; i++) {
+                    printf("");
                     ((uint16_t *)local(local_out_value))[i] = ((uint16_t *)local(local_in))[i];
                     ((uint16_t *)local(local_out_indices))[i] = indices[i];
                 }
