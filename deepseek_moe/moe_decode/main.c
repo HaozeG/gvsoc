@@ -67,17 +67,42 @@ int main(){
 
     /** HBM placement version 4 */
     // W1 stored at the beginning of channel 4, 5, 6, 7
-    uint32_t expert_w1_weights_offset = 0;
-    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w1_weights_offset = 0;
+    // uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
 
-    // W3 stored at the beginning of channel 0, 1, 2, 3
+    // // W3 stored at the beginning of channel 0, 1, 2, 3
+    // uint32_t expert_w3_weights_offset = 0;
+    // uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+
+    // // W2 stored in all channels following the W1/W3
+    // uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // // Gate weights stored in all channels following the W2 bias
+    // uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // // All the other data stored in channel 0, following the gate weights
+    // uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    // uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    // uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+
+    /** HBM placement optimized */
+    // Size of the tiles in each HBM channel (for 2 clusters)
+    uint32_t w1_w3_tile_size_partitioned = 2 * TILE_WIDTH_EXPERT_0 * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint32_t w2_tile_size_partitioned = 2 * TILE_WIDTH_EXPERT_1 * inter_dim  * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // W1 stored separately at the beginning of channel 4, 5, 6, 7
+    uint32_t expert_w1_weights_offset = 0;
+    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + w1_w3_tile_size_partitioned;
+
+    // W3 stored separately at the beginning of channel 0, 1, 2, 3
     uint32_t expert_w3_weights_offset = 0;
-    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + w1_w3_tile_size_partitioned;
 
     // W2 stored in all channels following the W1/W3
     uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-
+    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + w2_tile_size_partitioned;
+    
     // Gate weights stored in all channels following the W2 bias
     uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
 

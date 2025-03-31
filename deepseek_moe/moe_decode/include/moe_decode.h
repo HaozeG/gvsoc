@@ -858,7 +858,6 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
     cluster_all = 0xFFFF;
 
-
     // Broadcast the input token to all clusters
     uint32_t local_token_offset, local_token_addr, token_size;
     local_token_offset = 0;
@@ -913,6 +912,18 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         flex_dma_async_wait_all();
     }
     flex_global_barrier_xy();
+
+    // Size of the tiles of weight matrices in each HBM channel
+    uint32_t w1_w3_tile_size_partitioned, w2_tile_size_partitioned, num_hbm_channels;
+    // static const int arch_hbm_chan_placement[] = ARCH_HBM_CHAN_PLACEMENT;
+
+    // TODO: remove hardcoding, need to get the info somwhere else (ARCH_HBM_CHAN_PLACEMENT not an array)
+    num_hbm_channels = 8;
+    // for (uint8_t i = 0; i < 4; i++) {
+    //     num_hbm_channels += arch_hbm_chan_placement[i];   // Total number of HBM channels
+    // }
+    w1_w3_tile_size_partitioned = dim * (inter_dim / num_hbm_channels) * DATA_SIZE_BYTES;
+    w2_tile_size_partitioned = inter_dim * (dim / num_hbm_channels) * DATA_SIZE_BYTES;
     
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))
@@ -930,11 +941,11 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         mul_op(&w_expert, &route_scale, &w_expert);
         // w1.forward(x)
         // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
-        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
+        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (w1_w3_tile_size_partitioned * i_expert)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
         
         // w3.forward(x)
         // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
-        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
+        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (w1_w3_tile_size_partitioned * i_expert)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
         flex_global_barrier_xy();
         // silu(w1.forward(x))
         // silu(hbm_addr(temp_token_0), hbm_addr(temp_token_0), inter_dim, n_token, cluster_all);
@@ -947,7 +958,7 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         flex_global_barrier_xy();
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
         // gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
-        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
+        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (w2_tile_size_partitioned * i_expert)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
         
         // multiply by gate weight and add to the output
         // dot_product_const(hbm_addr(temp_token_0), w_expert, hbm_addr(temp_token_0), dim, n_token, cluster_all);
@@ -964,11 +975,11 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     for (int i_expert = n_routed_experts; i_expert < (n_routed_experts + n_shared_experts); i_expert++) {
         // w1.forward(x)
         // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
-        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
+        gemv(local_token_addr, hbm_addr(expert_w1_weights_addr + (w1_w3_tile_size_partitioned * i_expert)), local(temp_token_0_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w1_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_0, TILE_WIDTH_EXPERT_0);
         
         // w3.forward(x)
         // gemv(hbm_addr(in_token_addr), hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_1), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
-        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (dim * inter_dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
+        gemv(local_token_addr, hbm_addr(expert_w3_weights_addr + (w1_w3_tile_size_partitioned * i_expert)), local(temp_token_1_tcdm), dim, n_token, inter_dim, hbm_addr(expert_w3_bias_addr + (inter_dim * i_expert * DATA_SIZE_BYTES)), cluster_coloring_1, TILE_WIDTH_EXPERT_0);
         
         flex_global_barrier_xy();
         // silu(w1.forward(x))
@@ -982,7 +993,7 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
         flex_global_barrier_xy();
         // w2.forward(silu(w1.forward(x)) * w3.forward(x))
         // gemv(hbm_addr(temp_token_0), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), hbm_addr(temp_token_0), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
-        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
+        gemv(local(temp_token_0_tcdm), hbm_addr(expert_w2_weights_addr + (w2_tile_size_partitioned * i_expert)), local(temp_token_0_tcdm), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES)), cluster_all, TILE_WIDTH_EXPERT_1);
         
         flex_global_barrier_xy();
         // add to the output
