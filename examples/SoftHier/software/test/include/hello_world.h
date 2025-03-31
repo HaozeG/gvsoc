@@ -7,11 +7,28 @@
 #include "flex_dma_pattern.h"
 #include "flex_group_barrier.h"
 
+// void hello_world_core0(){
+//     flex_global_barrier_xy();//Global barrier
+//     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0)
+//     {
+//     	printf("Hello World\n");
+//     }
+//     flex_global_barrier_xy();//Global barrier
+// }
+
 void hello_world_core0(){
     flex_global_barrier_xy();//Global barrier
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0)
     {
-    	printf("Hello World\n");
+        uint16_t indices[8];
+        int k = 8;
+        for (int i = 0; i < k; i++) {
+            indices[i] = (uint16_t)i*2;
+        }
+        uint16_t * arr = (uint16_t *)local(0);
+        for (int i = 0; i < k; i++) {
+            arr[i] = indices[i];
+        }
     }
     flex_global_barrier_xy();//Global barrier
 }

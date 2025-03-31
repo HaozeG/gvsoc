@@ -53,11 +53,17 @@ sw_decode_pfto:
 hs_decode_clean:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs run
 
+hs_decode_clean_spatz:
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ hs run
+
 hs_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs runv pfto
 
 sw_decode_clean:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw run
+
+sw_decode_clean_spatz:
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw run
 
 sw_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
