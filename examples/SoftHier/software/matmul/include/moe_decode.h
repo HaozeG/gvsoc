@@ -47,8 +47,14 @@ void silu_op(const fp16* input, fp16* output);
 void sigmoid_op(const fp16* input, fp16* output);
 void mul_op(const fp16* input1, const fp16* input2, fp16* output);
 void add_op(const fp16* input1, const fp16* input2, fp16* output);
+uint32_t min(uint32_t a, uint32_t b);
 
 void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size);
+
+
+uint32_t min(uint32_t a, uint32_t b) {
+    return (a < b) ? a : b;
+}
 
 /**
  * @brief GEMV operation A * B = C for input vector A (1xK), matrix B (KxN) and output matrix C (1xN).
@@ -125,8 +131,8 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                     continue;
                 }
                 
-                m_tile = fmin(tile_width, m_remaining - gi * tile_width);
-                n_tile = fmin(tile_width, n_remaining - gj * tile_width);
+                m_tile = min(tile_width, m_remaining - gi * tile_width);
+                n_tile = min(tile_width, n_remaining - gj * tile_width);
                 
                 if(flex_is_dm_core()) {
                     if (bias_addr == zomem(0)) {
@@ -143,7 +149,7 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                 
                 // bK: inner loop tile computing partial sums
                 for (bK = 0; bK < K; bK += tile_width) {
-                    k_tile = fmin(tile_width, K - bK);
+                    k_tile = min(tile_width, K - bK);
 
                     // SoftHier_HBM -> SoftHier_TCDM 2D
                     if(flex_is_dm_core()) {
@@ -302,12 +308,11 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
         local_out_indices += core_id * k * DATA_SIZE_BYTES;
         local_out_value += core_id * k * DATA_SIZE_BYTES;
 
-        // Allocate an array for indices
-        uint16_t indices[256]; // Should be large enough for n_routed_expert
-
         while (i_row_cluster < n_token) {
+            // Allocate an array for indices
+            uint16_t indices[256]; // Should be large enough for n_routed_expert
             // one dma transfer per cluster
-            transfer_rows = fmin(ARCH_NUM_CORE_PER_CLUSTER, n_token - i_row_cluster);
+            transfer_rows = min(ARCH_NUM_CORE_PER_CLUSTER, n_token - i_row_cluster);
 
             if (flex_is_dm_core()) {
                 flex_dma_async_1d(local(local_in), 
@@ -320,31 +325,32 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
             if ((i_row_cluster + core_id) < n_token) {
                 // Initialize index array
                 for (int i = 0; i < n_routed_expert; i++) {
+                    printf("");
                     indices[i] = i;
                 }
                 
                 // Quickselect to partition the array so that the k largest elements are at the beginning
                 quickselect((uint16_t*)local(local_in), indices, 0, n_routed_expert - 1, k - 1);
                 
-                // Sort the top k elements (if needed for fully sorted output)
-                // Simple insertion sort for the small k values
-                for (int i = 1; i < k; i++) {
-                    uint16_t key_val = ((uint16_t *)local(local_in))[i];
-                    uint16_t key_idx = indices[i];
-                    int j = i - 1;
+                // // Sort the top k elements (if needed for fully sorted output)
+            //     // Simple insertion sort for the small k values
+            //     for (int i = 1; i < k; i++) {
+            //         uint16_t key_val = ((uint16_t *)local(local_in))[i];
+            //         uint16_t key_idx = indices[i];
+            //         int j = i - 1;
                     
-                    while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
-                        ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
-                        indices[j + 1] = indices[j];
-                        j--;
-                    }
+            //         while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
+            //             ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
+            //             indices[j + 1] = indices[j];
+            //             j--;
+            //         }
                     
-                    ((uint16_t *)local(local_in))[j + 1] = key_val;
-                    indices[j + 1] = key_idx;
-                }
-                
+            //         ((uint16_t *)local(local_in))[j + 1] = key_val;
+            //         indices[j + 1] = key_idx;
+            //     }
                 // Copy to output buffers
                 for (int i = 0; i < k; i++) {
+                    printf("");
                     ((uint16_t *)local(local_out_value))[i] = ((uint16_t *)local(local_in))[i];
                     ((uint16_t *)local(local_out_indices))[i] = indices[i];
                 }
@@ -495,7 +501,7 @@ void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, co
 
             // compute element-wise operation
             int idx = core_id * ELEMENT_WISE_TILE_WIDTH;
-            n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - idx);
+            n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - idx);
             flex_intra_cluster_sync();
             for (int i = 0; i < n_element_per_core; i++, idx++) {
                 op((const fp16*)local(local_in + idx * DATA_SIZE_BYTES), 
@@ -555,7 +561,7 @@ void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, c
 
         while (i_element_cluster < n_token * dim) {
             // load data: one dma transfer per cluster
-            n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+            n_element_per_cluster = min(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
             if (flex_is_dm_core()) {
                 flex_dma_async_1d(local(local_in1), in_addr1 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
                 flex_dma_async_1d(local(local_in2), in_addr2 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
@@ -563,7 +569,7 @@ void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, c
             }
             
             // compute element-wise operation
-            n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+            n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
             flex_intra_cluster_sync();
             for (int i = 0; i < n_element_per_core; i++) {
                 int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
@@ -622,14 +628,14 @@ void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, 
 
         while (i_element_cluster < n_token * dim) {
             // load data: one dma transfer per cluster
-            n_element_per_cluster = fmin(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+            n_element_per_cluster = min(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
             if (flex_is_dm_core()) {
                 flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
                 flex_dma_async_wait_all();
             }
             
             // compute element-wise operation
-            n_element_per_core = fmin(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+            n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
             flex_intra_cluster_sync();
             for (int i = 0; i < n_element_per_core; i++) {
                 int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
