@@ -1,19 +1,21 @@
+import sys
+import os
+
+# Add the config directory to the Python module search path
+config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config'))
+sys.path.append(config_dir)
+
+from arch_NoC512 import FlexClusterArch
 import DeepseekMoE
 
-import os
 import numpy as np
 import preload as pld
 
-HBM_BASE_ADDR = 0xc0000000
 DATA_SIZE_BYTES = 2
-# TODO: read from file or command line input instead of hardcoding
-HBM_NODE_ADDR_SPACE = 0x04000000
-NUM_HBM_CHANNELS_W = 4
-NUM_HBM_CHANNELS_S = 4
-NUM_CLUSTER_X = 4
-NUM_CLUSTER_Y = 4
 
-# Helper function to partition matrices into vertical tiles
+arch = FlexClusterArch()
+
+# Function to partition matrices into vertical tiles
 def partition_matrices(matrices, n_matrices, width, rows, tile_width):
     # TODO: Handle the case where width is not divisible by tile_width
     assert width % tile_width == 0
@@ -101,26 +103,47 @@ if __name__ == '__main__':
     print("actual_out: ", actual_out[0])
     print("golden: ", golden[0])
     
-    print("expert_w1_weights: ", expert_w1_weights)
-    print("expert_w1_weights shape: ", expert_w1_weights.shape)
+    # print the shape of the weight matrices
+    # print("expert_w1_weights: ", expert_w1_weights)
+    # print("expert_w1_weights shape: ", expert_w1_weights.shape)
     # print("expert_w2_weights: ", expert_w2_weights)
-    # print("expert_w2_weights shape: ", expert_w2_weights.shape)    
+    # print("expert_w2_weights shape: ", expert_w2_weights.shape)
+    
+    # Read the hardwre architecture configuration from the config file
+    hbm_base_addr       = arch.hbm_start_base
+    hbm_node_addr_space = arch.hbm_node_addr_space
+    num_hbm_channels_w  = arch.hbm_chan_placement[0]     # West HBM
+    num_hbm_channels_n  = arch.hbm_chan_placement[1]     # North HBM
+    num_hbm_channels_e  = arch.hbm_chan_placement[2]     # South HBM
+    num_hbm_channels_s  = arch.hbm_chan_placement[3]     # East HBM
+    num_cluster_x       = arch.num_cluster_x
+    num_cluster_y       = arch.num_cluster_y
+    
+    # Print the hardware architecture configuration
+    print("HBM base address: ", hex(hbm_base_addr))
+    print("HBM node address space: ", hex(hbm_node_addr_space))
+    print("Number of HBM channels (West): ", num_hbm_channels_w)
+    print("Number of HBM channels (North): ", num_hbm_channels_n)
+    print("Number of HBM channels (East): ", num_hbm_channels_e)
+    print("Number of HBM channels (South): ", num_hbm_channels_s)
+    print("Number of clusters in X direction: ", num_cluster_x)
+    print("Number of clusters in Y direction: ", num_cluster_y)
     
     # Base address maps of HBM channels
-    hbm_ch0_addr = HBM_BASE_ADDR
-    hbm_ch1_addr = HBM_BASE_ADDR + HBM_NODE_ADDR_SPACE
-    hbm_ch2_addr = HBM_BASE_ADDR + HBM_NODE_ADDR_SPACE * 2
-    hbm_ch3_addr = HBM_BASE_ADDR + HBM_NODE_ADDR_SPACE * 3
+    hbm_ch0_addr = hbm_base_addr
+    hbm_ch1_addr = hbm_base_addr + hbm_node_addr_space
+    hbm_ch2_addr = hbm_base_addr + hbm_node_addr_space * 2
+    hbm_ch3_addr = hbm_base_addr + hbm_node_addr_space * 3
     
-    hbm_south_base = HBM_BASE_ADDR + HBM_NODE_ADDR_SPACE * (2 * NUM_CLUSTER_Y + NUM_CLUSTER_X)
+    hbm_south_base = hbm_base_addr + hbm_node_addr_space * (2 * num_cluster_y + num_cluster_x)
     
     hbm_ch4_addr = hbm_south_base
-    hbm_ch5_addr = hbm_south_base + HBM_NODE_ADDR_SPACE
-    hbm_ch6_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 2
-    hbm_ch7_addr = hbm_south_base + HBM_NODE_ADDR_SPACE * 3
+    hbm_ch5_addr = hbm_south_base + hbm_node_addr_space
+    hbm_ch6_addr = hbm_south_base + hbm_node_addr_space * 2
+    hbm_ch7_addr = hbm_south_base + hbm_node_addr_space * 3
     
     # Partition W1 and W3 matrices into vertical tiles
-    tile_width_w1_w3 = moe_inter_dim // (NUM_HBM_CHANNELS_S + NUM_HBM_CHANNELS_W)
+    tile_width_w1_w3 = moe_inter_dim // (num_hbm_channels_s + num_hbm_channels_w)
     n_total_experts = n_routed_experts + n_shared_experts
     expert_w1_weights_partitioned = partition_matrices(expert_w1_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
     expert_w3_weights_partitioned = partition_matrices(expert_w3_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
@@ -128,12 +151,13 @@ if __name__ == '__main__':
     # print("partitioned_expert_w1 shape:", expert_w1_weights_partitioned.shape)
     
     # Partition W2 matrix into vertical tiles
-    tile_width_w2 = dim // (NUM_HBM_CHANNELS_S + NUM_HBM_CHANNELS_W)
+    tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
     expert_w2_weights_partitioned = partition_matrices(expert_w2_weights, n_total_experts, dim, moe_inter_dim, tile_width_w2)
     # print("partitioned_expert_w2:", expert_w2_weights_partitioned)
     # print("partitioned_expert_w2 shape:", expert_w2_weights_partitioned.shape)
     
     # Map partitioned matrices to HBM channels
+    # TODO: consider using array to automate the mapping process
     # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
     tile_size_w1_w3 = expert_w1_weights_partitioned.nbytes // len(expert_w1_weights_partitioned)
     expert_w1_weights_address_4_1 = hbm_ch4_addr

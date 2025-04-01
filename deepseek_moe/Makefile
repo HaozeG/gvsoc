@@ -7,7 +7,10 @@ hbm_pld:
 hbm_pld_decode:
 	cd preload; python hbm_data_decode.py
 
-local_hw:
+hbm_pld_opt:
+	cd preload; python hbm_data_opt.py
+
+hw_512:
 	cfg=$(abspath config/arch_NoC512.py) make -C ../ hw
 
 # Bypass prelaod to save time

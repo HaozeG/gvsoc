@@ -23,7 +23,7 @@ void hello_world_core0(){
         uint16_t indices[8];
         int k = 8;
         for (int i = 0; i < k; i++) {
-            indices[i] = (uint16_t)i*2;
+            indices[i] = (uint16_t)i;
         }
         uint16_t * arr = (uint16_t *)local(0);
         for (int i = 0; i < k; i++) {
