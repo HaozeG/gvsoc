@@ -7,7 +7,6 @@ sys.path.append(config_dir)
 
 from arch_NoC512 import FlexClusterArch
 import DeepseekMoE
-
 import numpy as np
 import preload as pld
 
@@ -168,10 +167,10 @@ if __name__ == '__main__':
     expert_w1_weights_address_6_2 = hbm_ch6_addr + tile_size_w1_w3
     expert_w1_weights_address_7_1 = hbm_ch7_addr
     expert_w1_weights_address_7_2 = hbm_ch7_addr + tile_size_w1_w3
-    expert_w1_bias_address_4 = expert_w1_weights_address_4_2 + expert_w1_weights.nbytes
-    expert_w1_bias_address_5 = expert_w1_weights_address_5_2 + expert_w1_weights.nbytes
-    expert_w1_bias_address_6 = expert_w1_weights_address_6_2 + expert_w1_weights.nbytes
-    expert_w1_bias_address_7 = expert_w1_weights_address_7_2 + expert_w1_weights.nbytes
+    expert_w1_bias_address_4 = expert_w1_weights_address_4_2 + tile_size_w1_w3
+    expert_w1_bias_address_5 = expert_w1_weights_address_5_2 + tile_size_w1_w3
+    expert_w1_bias_address_6 = expert_w1_weights_address_6_2 + tile_size_w1_w3
+    expert_w1_bias_address_7 = expert_w1_weights_address_7_2 + tile_size_w1_w3
     
     # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
     expert_w3_weights_address_0_1 = hbm_ch0_addr
@@ -182,12 +181,13 @@ if __name__ == '__main__':
     expert_w3_weights_address_2_2 = hbm_ch2_addr + tile_size_w1_w3
     expert_w3_weights_address_3_1 = hbm_ch3_addr
     expert_w3_weights_address_3_2 = hbm_ch3_addr + tile_size_w1_w3
-    expert_w3_bias_address_0 = expert_w3_weights_address_0_2 + expert_w3_weights.nbytes
-    expert_w3_bias_address_1 = expert_w3_weights_address_1_2 + expert_w3_weights.nbytes
-    expert_w3_bias_address_2 = expert_w3_weights_address_2_2 + expert_w3_weights.nbytes
-    expert_w3_bias_address_3 = expert_w3_weights_address_3_2 + expert_w3_weights.nbytes
+    expert_w3_bias_address_0 = expert_w3_weights_address_0_2 + tile_size_w1_w3
+    expert_w3_bias_address_1 = expert_w3_weights_address_1_2 + tile_size_w1_w3
+    expert_w3_bias_address_2 = expert_w3_weights_address_2_2 + tile_size_w1_w3
+    expert_w3_bias_address_3 = expert_w3_weights_address_3_2 + tile_size_w1_w3
     
     # W2 accessed by all clusters
+    tile_size_w2 = expert_w2_weights_partitioned.nbytes // len(expert_w2_weights_partitioned)
     expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
     epxert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
     expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
@@ -196,14 +196,14 @@ if __name__ == '__main__':
     expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w1_bias.nbytes
     expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w1_bias.nbytes
     expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w1_bias.nbytes
-    expert_w2_bias_address_0 = expert_w2_weights_address_0 + expert_w2_weights.nbytes
-    expert_w2_bias_address_1 = epxert_w2_weights_address_1 + expert_w2_weights.nbytes
-    expert_w2_bias_address_2 = expert_w2_weights_address_2 + expert_w2_weights.nbytes
-    expert_w2_bias_address_3 = expert_w2_weights_address_3 + expert_w2_weights.nbytes
-    expert_w2_bias_address_4 = expert_w2_weights_address_4 + expert_w2_weights.nbytes
-    expert_w2_bias_address_5 = expert_w2_weights_address_5 + expert_w2_weights.nbytes
-    expert_w2_bias_address_6 = expert_w2_weights_address_6 + expert_w2_weights.nbytes
-    expert_w2_bias_address_7 = expert_w2_weights_address_7 + expert_w2_weights.nbytes
+    expert_w2_bias_address_0 = expert_w2_weights_address_0 + tile_size_w2
+    expert_w2_bias_address_1 = epxert_w2_weights_address_1 + tile_size_w2
+    expert_w2_bias_address_2 = expert_w2_weights_address_2 + tile_size_w2
+    expert_w2_bias_address_3 = expert_w2_weights_address_3 + tile_size_w2
+    expert_w2_bias_address_4 = expert_w2_weights_address_4 + tile_size_w2
+    expert_w2_bias_address_5 = expert_w2_weights_address_5 + tile_size_w2
+    expert_w2_bias_address_6 = expert_w2_weights_address_6 + tile_size_w2
+    expert_w2_bias_address_7 = expert_w2_weights_address_7 + tile_size_w2
 
     # A copy of gate weights in all HBM channels
     gate_weights_address_0 = expert_w2_bias_address_0 + experts_w2_bias.nbytes

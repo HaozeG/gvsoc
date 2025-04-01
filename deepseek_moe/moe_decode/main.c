@@ -129,6 +129,18 @@ int main(){
         printf("dim: %d\n", dim);
         printf("inter_dim: %d\n", inter_dim);
         printf("n_routed_experts: %d\n",n_routed_experts);
+
+        // printf("Offset Values:\n");
+        // printf("expert_w1_weights_offset: 0x%x\n", expert_w1_weights_offset);
+        // printf("expert_w1_bias_offset: 0x%x\n", expert_w1_bias_offset);
+        // printf("expert_w3_weights_offset: 0x%x\n", expert_w3_weights_offset);
+        // printf("expert_w3_bias_offset: 0x%x\n", expert_w3_bias_offset);
+        // printf("expert_w2_weights_offset: 0x%x\n", expert_w2_weights_offset);
+        // printf("expert_w2_bias_offset: 0x%x\n", expert_w2_bias_offset);
+        // printf("gate_weights_offset: 0x%x\n", gate_weights_offset);
+        // printf("in_token_offset: 0x%x\n", in_token_offset);
+        // printf("actual_out_offset: 0x%x\n", actual_out_offset);
+        // printf("golden_out_offset: 0x%x\n", golden_out_offset);
     }
     
     // First element of each matrix
@@ -148,7 +160,7 @@ int main(){
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 16; j++) {
-                printf("0x%04x ", ((uint16_t *)(hbm_addr(in_token_offset)))[j + i * dim]);
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(in_token_offset)))[j + i * dim]);  // For centralized version
             }
             printf("\n");
         }
@@ -166,7 +178,8 @@ int main(){
             printf("    ");
             for (int j = 0; j < 16; j++) {
             // for (int j = 0; j < inter_dim; j++) {
-                printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_weights_offset)))[j + i * inter_dim]);
+                // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_weights_offset)))[j + i * inter_dim]);    // For centralzied version
+                printf("0x%04x ", ((uint16_t *)(hbm_south(0, expert_w1_weights_offset)))[j + i * inter_dim]);   // For distributed version
             }
             printf("\n");
         }
@@ -175,7 +188,8 @@ int main(){
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 16; j++) {
-                printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_bias_offset)))[j + i * dim]);
+                // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w1_bias_offset)))[j + i * dim]);        // For centralized version
+                printf("0x%04x ", ((uint16_t *)(hbm_south(0, expert_w1_bias_offset)))[j + i * dim]);    // For distributed version
             }
             printf("\n");
         }
@@ -315,6 +329,16 @@ int main(){
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 32; j++) {
                 printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+            }
+            printf("\n");
+        }
+        
+        printf("golden:\n");
+        for (int i = 0; i < n_token; i++) {
+            printf("    ");
+            // for (int j = 0; j < dim; j++) {
+            for (int j = 0; j < 32; j++) {
+                printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
             }
             printf("\n");
         }
