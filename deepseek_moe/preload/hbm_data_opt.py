@@ -156,9 +156,21 @@ if __name__ == '__main__':
     # print("partitioned_expert_w2 shape:", expert_w2_weights_partitioned.shape)
     
     # Map partitioned matrices to HBM channels
-    # TODO: consider using array to automate the mapping process
     # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
+    # TODO: array version verified but not active when preloading
     tile_size_w1_w3 = expert_w1_weights_partitioned.nbytes // len(expert_w1_weights_partitioned)
+    expert_w1_weights_addresses = []
+    expert_w1_bias_addresses = []
+    for i in range(num_hbm_channels_s):
+        tiles_per_channel = len(expert_w1_weights_partitioned) // num_hbm_channels_s
+        for j in range(tiles_per_channel):
+            expert_w1_weights_addresses.append(hbm_south_base + (i * hbm_node_addr_space) + (j * tile_size_w1_w3))
+            if j == tiles_per_channel - 1:
+                expert_w1_bias_addresses.append(hbm_south_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size_w1_w3))
+        
+    # print("expert_w1_weights_addresses: ", [hex(addr) for addr in expert_w1_weights_addresses])
+    # print("expert_w1_bias_addresses: ", [hex(addr) for addr in expert_w1_bias_addresses])
+    
     expert_w1_weights_address_4_1 = hbm_ch4_addr
     expert_w1_weights_address_4_2 = hbm_ch4_addr + tile_size_w1_w3
     expert_w1_weights_address_5_1 = hbm_ch5_addr
@@ -173,6 +185,19 @@ if __name__ == '__main__':
     expert_w1_bias_address_7 = expert_w1_weights_address_7_2 + tile_size_w1_w3
     
     # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
+    # TODO: array version verified but not active when preloading
+    expert_w3_matrix_addresses = []
+    expert_w3_bias_addresses = []
+    for i in range(num_hbm_channels_w):
+        tiles_per_channel = len(expert_w3_weights_partitioned) // num_hbm_channels_w
+        for j in range(tiles_per_channel):
+            expert_w3_matrix_addresses.append(hbm_base_addr + (i * hbm_node_addr_space) + (j * tile_size_w1_w3))
+            if j == tiles_per_channel - 1:
+                expert_w3_bias_addresses.append(hbm_base_addr + (i * hbm_node_addr_space) + ((j + 1) * tile_size_w1_w3))
+                
+    # print("expert_w3_matrix_addresses: ", [hex(addr) for addr in expert_w3_matrix_addresses])
+    # print("expert_w3_bias_addresses: ", [hex(addr) for addr in expert_w3_bias_addresses])
+    
     expert_w3_weights_address_0_1 = hbm_ch0_addr
     expert_w3_weights_address_0_2 = hbm_ch0_addr + tile_size_w1_w3
     expert_w3_weights_address_1_1 = hbm_ch1_addr
@@ -187,7 +212,22 @@ if __name__ == '__main__':
     expert_w3_bias_address_3 = expert_w3_weights_address_3_2 + tile_size_w1_w3
     
     # W2 accessed by all clusters
+    # TODO: array version verified but not active when preloading
     tile_size_w2 = expert_w2_weights_partitioned.nbytes // len(expert_w2_weights_partitioned)
+    expert_w2_weights_addresses = []
+    expert_w2_bias_addresses = []
+    for i in range(num_hbm_channels_w):
+        expert_w2_weights_addresses.append(expert_w3_bias_addresses[i] + expert_w3_bias.nbytes)
+        expert_w2_bias_addresses.append(expert_w2_weights_addresses[i] + tile_size_w2)
+        
+    for i in range(num_hbm_channels_s):
+        j = i + num_hbm_channels_w
+        expert_w2_weights_addresses.append(expert_w1_bias_addresses[i] + expert_w1_bias.nbytes)
+        expert_w2_bias_addresses.append(expert_w2_weights_addresses[j] + tile_size_w2)
+        
+    # print("expert_w2_weights_addresses: ", [hex(addr) for addr in expert_w2_weights_addresses])
+    # print("expert_w2_bias_addresses: ", [hex(addr) for addr in expert_w2_bias_addresses])
+    
     expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
     epxert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
     expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
@@ -206,6 +246,13 @@ if __name__ == '__main__':
     expert_w2_bias_address_7 = expert_w2_weights_address_7 + tile_size_w2
 
     # A copy of gate weights in all HBM channels
+    # TODO: array version verified but not active when preloading
+    gate_weights_addresses = []
+    for i in range(num_hbm_channels_w + num_hbm_channels_s):
+        gate_weights_addresses.append(expert_w2_bias_addresses[i] + experts_w2_bias.nbytes)
+    
+    # print("gate_weights_addresses: ", [hex(addr) for addr in gate_weights_addresses])
+    
     gate_weights_address_0 = expert_w2_bias_address_0 + experts_w2_bias.nbytes
     gate_weights_address_1 = expert_w2_bias_address_1 + experts_w2_bias.nbytes
     gate_weights_address_2 = expert_w2_bias_address_2 + experts_w2_bias.nbytes
@@ -216,6 +263,11 @@ if __name__ == '__main__':
     gate_weights_address_7 = expert_w2_bias_address_7 + experts_w2_bias.nbytes
     
     # All other data are placed only in HBM channel 0 after the gate weights
+    # TODO: new version verified but not active
+    in_token_address_new = gate_weights_addresses[0] + gate_weights.nbytes
+    actual_out_address_new = in_token_address_new + in_token.nbytes
+    golden_address_new = actual_out_address_new + actual_out.nbytes
+    
     in_token_address = gate_weights_address_0 + gate_weights.nbytes
     actual_out_address = in_token_address + in_token.nbytes
     golden_address = actual_out_address + actual_out.nbytes
@@ -304,6 +356,7 @@ if __name__ == '__main__':
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     
+    # TODO: use the array version for automated preloading
     pld.make_preload_elf("hbm_data_opt.elf", 
                             [expert_w1_weights_partitioned[0],
                             expert_w1_weights_partitioned[1],
