@@ -5,7 +5,8 @@ import os
 config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config'))
 sys.path.append(config_dir)
 
-from arch_NoC512 import FlexClusterArch     # Read the hardware config for data placement
+from arch_NoC512 import FlexClusterArch       # Read the hardware config for data placement
+# from arch_hbm16_NoC512 import FlexClusterArch
 import DeepseekMoE
 import numpy as np
 import preload as pld
@@ -238,22 +239,22 @@ if __name__ == '__main__':
     
     # Combine all data into a list for preloading in same sequance as tge addresseses
     pld_data = []
-    for i in range(total_num_hbm_channels):
+    for i in range(len(expert_w1_weights_addresses)):
         pld_data.append(expert_w1_weights_partitioned[i])
-    for i in range(total_num_hbm_channels):
+    for i in range(len(expert_w3_weigts_addresses)):
         pld_data.append(expert_w3_weights_partitioned[i])
-    for i in range(total_num_hbm_channels):
+    for i in range(len(expert_w2_weights_addresses)):
         pld_data.append(expert_w2_weights_partitioned[i])
-    for i in range(total_num_hbm_channels):
+    for i in range(len(gate_weights_addresses)):
         pld_data.append(gate_weights)
-    for i in range(num_hbm_channels_s):
+    for i in range(len(expert_w1_bias_addresses)):
         pld_data.append(expert_w1_bias)
-    for i in range(num_hbm_channels_w):
+    for i in range(len(expert_w3_bias_addresses)):
         pld_data.append(expert_w3_bias)
-    for i in range(total_num_hbm_channels):
+    for i in range(len(expert_w2_bias_addresses)):
         pld_data.append(experts_w2_bias)
         
-    # Append the trailing datas
+    # Append the trailing data
     pld_data.append(in_token)
     pld_data.append(actual_out)
     pld_data.append(golden)

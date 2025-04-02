@@ -22,3 +22,4 @@ dump*
 deepseek_moe/scratchpad.txt
 deepseek_moe/HBM_utilization.txt
 deepseek_moe/out_dump.txt
+deepseek_moe/dbg.py

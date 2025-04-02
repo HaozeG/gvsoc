@@ -117,8 +117,10 @@ int main(){
         printf("[Check Preload] Addresses\n");
         printf("in_token: 0x%x\n", hbm_addr(in_token_offset));
         printf("gate_weight: 0x%x\n", hbm_addr(gate_weights_offset));
-        printf("expert_w1_weight: 0x%x\n", hbm_addr(expert_w1_weights_offset));
-        printf("expert_w1_bias: 0x%x\n", hbm_addr(expert_w1_bias_offset));
+        // printf("expert_w1_weight: 0x%x\n", hbm_addr(expert_w1_weights_offset));
+        printf("expert_w1_weight: 0x%x\n", hbm_south(0, expert_w1_weights_offset));    // For distributed version
+        // printf("expert_w1_bias: 0x%x\n", hbm_addr(expert_w1_bias_offset));
+        printf("expert_w1_bias: 0x%x\n", hbm_south(0, expert_w1_bias_offset));         // For distributed version
         printf("expert_w2_weight: 0x%x\n", hbm_addr(expert_w2_weights_offset));
         printf("expert_w2_bias: 0x%x\n", hbm_addr(expert_w2_bias_offset));
         printf("expert_w3_weight: 0x%x\n", hbm_addr(expert_w3_weights_offset));

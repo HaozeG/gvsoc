@@ -220,7 +220,7 @@ if __name__ == '__main__':
     ### END HBM data placement version 3 ###
     
     ### START HBM data placement version 4 ###
-    # W1 accessed by coloring 0, store in channel 0, 1, 2, 3
+    # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
     expert_w1_weights_address_4 = hbm_ch4_addr
     expert_w1_weights_address_5 = hbm_ch5_addr
     expert_w1_weights_address_6 = hbm_ch6_addr
@@ -230,7 +230,7 @@ if __name__ == '__main__':
     expert_w1_bias_address_6 = expert_w1_weights_address_6 + expert_w1_weights.nbytes
     expert_w1_bias_address_7 = expert_w1_weights_address_7 + expert_w1_weights.nbytes
     
-    # W3 accessed by coloring 1, store in channel 4, 5, 6, 7
+    # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
     expert_w3_weights_address_0 = hbm_ch0_addr
     expert_w3_weights_address_1 = hbm_ch1_addr
     expert_w3_weights_address_2 = hbm_ch2_addr

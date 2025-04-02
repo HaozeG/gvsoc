@@ -13,6 +13,9 @@ hbm_pld_opt:
 hw_512:
 	cfg=$(abspath config/arch_NoC512.py) make -C ../ hw
 
+hw_16hbm:
+	cfg=$(abspath config/arch_hbm16_NoC512.py) make -C ../ hw
+
 # Bypass prelaod to save time
 hs_moe:	
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath applications) pld=$(abspath preload/hbm_data_MoE.elf) make -C ../ hs run
@@ -42,9 +45,15 @@ sw_moe_pld_pfto: hbm_pld
 # Decode
 
 hs_decode:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ hs run
+
+hs_decode_opt:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ hs run
 
 sw_decode:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ sw run
+
+sw_decode_opt:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ sw run
 
 hs_decode_pfto:
