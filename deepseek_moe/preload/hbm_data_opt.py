@@ -5,7 +5,7 @@ import os
 config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config'))
 sys.path.append(config_dir)
 
-from arch_NoC512 import FlexClusterArch
+from arch_NoC512 import FlexClusterArch     # Read the hardware config for data placement
 import DeepseekMoE
 import numpy as np
 import preload as pld
@@ -14,7 +14,7 @@ DATA_SIZE_BYTES = 2
 
 arch = FlexClusterArch()
 
-# Function to partition matrices into vertical tiles
+# Function to split matrices into vertical tiles
 def partition_matrices(matrices, n_matrices, width, rows, tile_width):
     # TODO: Handle the case where width is not divisible by tile_width
     assert width % tile_width == 0
@@ -36,8 +36,23 @@ def partition_matrices(matrices, n_matrices, width, rows, tile_width):
         # Combine all matrices for this tile
         tile_group_flat = np.concatenate(tile_group)   # shape (n_matrices * rows * tile_width,)
         output.append(tile_group_flat)
-
+        
     return np.stack(output)  # shape: (n_tiles, n_matrices * rows * tile_width)
+
+
+# Function to map expert weights and biases to HBM addresses
+def map_w1w3_to_hbm(partitioned_weight_matrices, n_hbm_channels_utilized, hbm_base, hbm_node_addr_space, tile_size):
+    weights_addresses = []
+    bias_addresses = []
+    
+    for i in range(n_hbm_channels_utilized):
+        tiles_per_channel = len(partitioned_weight_matrices) // n_hbm_channels_utilized
+        for j in range(tiles_per_channel):
+            weights_addresses.append(hbm_base + (i * hbm_node_addr_space) + (j * tile_size))
+            if j == tiles_per_channel - 1:
+                bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size))
+
+    return weights_addresses, bias_addresses
 
 
 if __name__ == '__main__':
@@ -117,29 +132,35 @@ if __name__ == '__main__':
     num_hbm_channels_s  = arch.hbm_chan_placement[3]     # East HBM
     num_cluster_x       = arch.num_cluster_x
     num_cluster_y       = arch.num_cluster_y
+    total_num_hbm_channels = num_hbm_channels_w + num_hbm_channels_n + num_hbm_channels_e + num_hbm_channels_s
     
     # Print the hardware architecture configuration
-    print("HBM base address: ", hex(hbm_base_addr))
-    print("HBM node address space: ", hex(hbm_node_addr_space))
-    print("Number of HBM channels (West): ", num_hbm_channels_w)
-    print("Number of HBM channels (North): ", num_hbm_channels_n)
-    print("Number of HBM channels (East): ", num_hbm_channels_e)
-    print("Number of HBM channels (South): ", num_hbm_channels_s)
-    print("Number of clusters in X direction: ", num_cluster_x)
-    print("Number of clusters in Y direction: ", num_cluster_y)
+    # print("HBM base address: ", hex(hbm_base_addr))
+    # print("HBM node address space: ", hex(hbm_node_addr_space))
+    # print("Number of HBM channels (West): ", num_hbm_channels_w)
+    # print("Number of HBM channels (North): ", num_hbm_channels_n)
+    # print("Number of HBM channels (East): ", num_hbm_channels_e)
+    # print("Number of HBM channels (South): ", num_hbm_channels_s)
+    # print("Number of clusters in X direction: ", num_cluster_x)
+    # print("Number of clusters in Y direction: ", num_cluster_y)
     
     # Base address maps of HBM channels
-    hbm_ch0_addr = hbm_base_addr
-    hbm_ch1_addr = hbm_base_addr + hbm_node_addr_space
-    hbm_ch2_addr = hbm_base_addr + hbm_node_addr_space * 2
-    hbm_ch3_addr = hbm_base_addr + hbm_node_addr_space * 3
+    # hbm_ch0_addr = hbm_base_addr
+    # hbm_ch1_addr = hbm_base_addr + hbm_node_addr_space
+    # hbm_ch2_addr = hbm_base_addr + hbm_node_addr_space * 2
+    # hbm_ch3_addr = hbm_base_addr + hbm_node_addr_space * 3
     
+    # HBM base maps
+    # NOTE: Currently supports only W and S HBM channels, overhaul required for N and E channels
+    hbm_west_base = hbm_base_addr
+    hbm_north_base = hbm_base_addr + hbm_node_addr_space * num_cluster_y
+    hbm_east_base = hbm_base_addr + hbm_node_addr_space * (num_cluster_y + num_cluster_x)
     hbm_south_base = hbm_base_addr + hbm_node_addr_space * (2 * num_cluster_y + num_cluster_x)
     
-    hbm_ch4_addr = hbm_south_base
-    hbm_ch5_addr = hbm_south_base + hbm_node_addr_space
-    hbm_ch6_addr = hbm_south_base + hbm_node_addr_space * 2
-    hbm_ch7_addr = hbm_south_base + hbm_node_addr_space * 3
+    # hbm_ch4_addr = hbm_south_base
+    # hbm_ch5_addr = hbm_south_base + hbm_node_addr_space
+    # hbm_ch6_addr = hbm_south_base + hbm_node_addr_space * 2
+    # hbm_ch7_addr = hbm_south_base + hbm_node_addr_space * 3
     
     # Partition W1 and W3 matrices into vertical tiles
     tile_width_w1_w3 = moe_inter_dim // (num_hbm_channels_s + num_hbm_channels_w)
@@ -149,7 +170,7 @@ if __name__ == '__main__':
     # print("partitioned_expert_w1:", expert_w1_weights_partitioned)
     # print("partitioned_expert_w1 shape:", expert_w1_weights_partitioned.shape)
     
-    # Partition W2 matrix into vertical tiles
+    # # Partition W2 matrix into vertical tiles
     tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
     expert_w2_weights_partitioned = partition_matrices(expert_w2_weights, n_total_experts, dim, moe_inter_dim, tile_width_w2)
     # print("partitioned_expert_w2:", expert_w2_weights_partitioned)
@@ -157,62 +178,23 @@ if __name__ == '__main__':
     
     # Map partitioned matrices to HBM channels
     # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
-    # TODO: array version verified but not active when preloading
     tile_size_w1_w3 = expert_w1_weights_partitioned.nbytes // len(expert_w1_weights_partitioned)
     expert_w1_weights_addresses = []
     expert_w1_bias_addresses = []
-    for i in range(num_hbm_channels_s):
-        tiles_per_channel = len(expert_w1_weights_partitioned) // num_hbm_channels_s
-        for j in range(tiles_per_channel):
-            expert_w1_weights_addresses.append(hbm_south_base + (i * hbm_node_addr_space) + (j * tile_size_w1_w3))
-            if j == tiles_per_channel - 1:
-                expert_w1_bias_addresses.append(hbm_south_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size_w1_w3))
+    expert_w1_weights_addresses, expert_w1_bias_addresses = map_w1w3_to_hbm(expert_w1_weights_partitioned, num_hbm_channels_s, hbm_south_base, hbm_node_addr_space, tile_size_w1_w3)
         
-    # print("expert_w1_weights_addresses: ", [hex(addr) for addr in expert_w1_weights_addresses])
-    # print("expert_w1_bias_addresses: ", [hex(addr) for addr in expert_w1_bias_addresses])
-    
-    expert_w1_weights_address_4_1 = hbm_ch4_addr
-    expert_w1_weights_address_4_2 = hbm_ch4_addr + tile_size_w1_w3
-    expert_w1_weights_address_5_1 = hbm_ch5_addr
-    expert_w1_weights_address_5_2 = hbm_ch5_addr + tile_size_w1_w3
-    expert_w1_weights_address_6_1 = hbm_ch6_addr
-    expert_w1_weights_address_6_2 = hbm_ch6_addr + tile_size_w1_w3
-    expert_w1_weights_address_7_1 = hbm_ch7_addr
-    expert_w1_weights_address_7_2 = hbm_ch7_addr + tile_size_w1_w3
-    expert_w1_bias_address_4 = expert_w1_weights_address_4_2 + tile_size_w1_w3
-    expert_w1_bias_address_5 = expert_w1_weights_address_5_2 + tile_size_w1_w3
-    expert_w1_bias_address_6 = expert_w1_weights_address_6_2 + tile_size_w1_w3
-    expert_w1_bias_address_7 = expert_w1_weights_address_7_2 + tile_size_w1_w3
+    print("expert_w1_weights_addresses: ", [hex(addr) for addr in expert_w1_weights_addresses])
+    print("expert_w1_bias_addresses: ", [hex(addr) for addr in expert_w1_bias_addresses])
     
     # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
-    # TODO: array version verified but not active when preloading
-    expert_w3_matrix_addresses = []
-    expert_w3_bias_addresses = []
-    for i in range(num_hbm_channels_w):
-        tiles_per_channel = len(expert_w3_weights_partitioned) // num_hbm_channels_w
-        for j in range(tiles_per_channel):
-            expert_w3_matrix_addresses.append(hbm_base_addr + (i * hbm_node_addr_space) + (j * tile_size_w1_w3))
-            if j == tiles_per_channel - 1:
-                expert_w3_bias_addresses.append(hbm_base_addr + (i * hbm_node_addr_space) + ((j + 1) * tile_size_w1_w3))
+    expert_w3_weigts_addresses = []
+    expert_w3_bias_addresses = []                
+    expert_w3_weigts_addresses, expert_w3_bias_addresses = map_w1w3_to_hbm(expert_w3_weights_partitioned, num_hbm_channels_w, hbm_west_base, hbm_node_addr_space, tile_size_w1_w3)
                 
-    # print("expert_w3_matrix_addresses: ", [hex(addr) for addr in expert_w3_matrix_addresses])
-    # print("expert_w3_bias_addresses: ", [hex(addr) for addr in expert_w3_bias_addresses])
-    
-    expert_w3_weights_address_0_1 = hbm_ch0_addr
-    expert_w3_weights_address_0_2 = hbm_ch0_addr + tile_size_w1_w3
-    expert_w3_weights_address_1_1 = hbm_ch1_addr
-    expert_w3_weights_address_1_2 = hbm_ch1_addr + tile_size_w1_w3
-    expert_w3_weights_address_2_1 = hbm_ch2_addr
-    expert_w3_weights_address_2_2 = hbm_ch2_addr + tile_size_w1_w3
-    expert_w3_weights_address_3_1 = hbm_ch3_addr
-    expert_w3_weights_address_3_2 = hbm_ch3_addr + tile_size_w1_w3
-    expert_w3_bias_address_0 = expert_w3_weights_address_0_2 + tile_size_w1_w3
-    expert_w3_bias_address_1 = expert_w3_weights_address_1_2 + tile_size_w1_w3
-    expert_w3_bias_address_2 = expert_w3_weights_address_2_2 + tile_size_w1_w3
-    expert_w3_bias_address_3 = expert_w3_weights_address_3_2 + tile_size_w1_w3
+    print("expert_w3_weigts_addresses: ", [hex(addr) for addr in expert_w3_weigts_addresses])
+    print("expert_w3_bias_addresses: ", [hex(addr) for addr in expert_w3_bias_addresses])
     
     # W2 accessed by all clusters
-    # TODO: array version verified but not active when preloading
     tile_size_w2 = expert_w2_weights_partitioned.nbytes // len(expert_w2_weights_partitioned)
     expert_w2_weights_addresses = []
     expert_w2_bias_addresses = []
@@ -225,286 +207,89 @@ if __name__ == '__main__':
         expert_w2_weights_addresses.append(expert_w1_bias_addresses[i] + expert_w1_bias.nbytes)
         expert_w2_bias_addresses.append(expert_w2_weights_addresses[j] + tile_size_w2)
         
-    # print("expert_w2_weights_addresses: ", [hex(addr) for addr in expert_w2_weights_addresses])
-    # print("expert_w2_bias_addresses: ", [hex(addr) for addr in expert_w2_bias_addresses])
-    
-    expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
-    epxert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
-    expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
-    expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w3_bias.nbytes
-    expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w1_bias.nbytes
-    expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w1_bias.nbytes
-    expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w1_bias.nbytes
-    expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w1_bias.nbytes
-    expert_w2_bias_address_0 = expert_w2_weights_address_0 + tile_size_w2
-    expert_w2_bias_address_1 = epxert_w2_weights_address_1 + tile_size_w2
-    expert_w2_bias_address_2 = expert_w2_weights_address_2 + tile_size_w2
-    expert_w2_bias_address_3 = expert_w2_weights_address_3 + tile_size_w2
-    expert_w2_bias_address_4 = expert_w2_weights_address_4 + tile_size_w2
-    expert_w2_bias_address_5 = expert_w2_weights_address_5 + tile_size_w2
-    expert_w2_bias_address_6 = expert_w2_weights_address_6 + tile_size_w2
-    expert_w2_bias_address_7 = expert_w2_weights_address_7 + tile_size_w2
+    print("expert_w2_weights_addresses: ", [hex(addr) for addr in expert_w2_weights_addresses])
+    print("expert_w2_bias_addresses: ", [hex(addr) for addr in expert_w2_bias_addresses])
 
     # A copy of gate weights in all HBM channels
-    # TODO: array version verified but not active when preloading
     gate_weights_addresses = []
     for i in range(num_hbm_channels_w + num_hbm_channels_s):
         gate_weights_addresses.append(expert_w2_bias_addresses[i] + experts_w2_bias.nbytes)
     
-    # print("gate_weights_addresses: ", [hex(addr) for addr in gate_weights_addresses])
+    print("gate_weights_addresses: ", [hex(addr) for addr in gate_weights_addresses])
     
-    gate_weights_address_0 = expert_w2_bias_address_0 + experts_w2_bias.nbytes
-    gate_weights_address_1 = expert_w2_bias_address_1 + experts_w2_bias.nbytes
-    gate_weights_address_2 = expert_w2_bias_address_2 + experts_w2_bias.nbytes
-    gate_weights_address_3 = expert_w2_bias_address_3 + experts_w2_bias.nbytes
-    gate_weights_address_4 = expert_w2_bias_address_4 + experts_w2_bias.nbytes
-    gate_weights_address_5 = expert_w2_bias_address_5 + experts_w2_bias.nbytes
-    gate_weights_address_6 = expert_w2_bias_address_6 + experts_w2_bias.nbytes
-    gate_weights_address_7 = expert_w2_bias_address_7 + experts_w2_bias.nbytes
-    
-    # All other data are placed only in HBM channel 0 after the gate weights
-    # TODO: new version verified but not active
-    in_token_address_new = gate_weights_addresses[0] + gate_weights.nbytes
-    actual_out_address_new = in_token_address_new + in_token.nbytes
-    golden_address_new = actual_out_address_new + actual_out.nbytes
-    
-    in_token_address = gate_weights_address_0 + gate_weights.nbytes
+    # All other data are placed only in HBM channel 0 following the gate weights
+    in_token_address= gate_weights_addresses[0] + gate_weights.nbytes
     actual_out_address = in_token_address + in_token.nbytes
     golden_address = actual_out_address + actual_out.nbytes
     
+    # Combine all addresses into a list for preloading
+    pld_addresses = (
+        expert_w1_weights_addresses +
+        expert_w3_weigts_addresses +
+        expert_w2_weights_addresses +
+        gate_weights_addresses +
+        expert_w1_bias_addresses +
+        expert_w3_bias_addresses +
+        expert_w2_bias_addresses +
+        [in_token_address, actual_out_address, golden_address]
+    )
+    # print("pld_addresses: ", [hex(addr) for addr in pld_addresses])
+    # print("ple_addresess shape: ", len(pld_addresses))
     
-    ### Redundant version (backup reference) ###
-    # W1 accessed by coloring 0, store in channel 0, 1, 2, 3
-    # expert_w1_weights_address_4 = hbm_ch4_addr
-    # expert_w1_weights_address_5 = hbm_ch5_addr
-    # expert_w1_weights_address_6 = hbm_ch6_addr
-    # expert_w1_weights_address_7 = hbm_ch7_addr
-    # expert_w1_bias_address_4 = expert_w1_weights_address_4 + expert_w1_weights.nbytes
-    # expert_w1_bias_address_5 = expert_w1_weights_address_5 + expert_w1_weights.nbytes
-    # expert_w1_bias_address_6 = expert_w1_weights_address_6 + expert_w1_weights.nbytes
-    # expert_w1_bias_address_7 = expert_w1_weights_address_7 + expert_w1_weights.nbytes
-    
-    # # W3 accessed by coloring 1, store in channel 4, 5, 6, 7
-    # expert_w3_weights_address_0 = hbm_ch0_addr
-    # expert_w3_weights_address_1 = hbm_ch1_addr
-    # expert_w3_weights_address_2 = hbm_ch2_addr
-    # expert_w3_weights_address_3 = hbm_ch3_addr
-    # expert_w3_bias_address_0 = expert_w3_weights_address_0 + expert_w3_weights.nbytes
-    # expert_w3_bias_address_1 = expert_w3_weights_address_1 + expert_w3_weights.nbytes
-    # expert_w3_bias_address_2 = expert_w3_weights_address_2 + expert_w3_weights.nbytes
-    # expert_w3_bias_address_3 = expert_w3_weights_address_3 + expert_w3_weights.nbytes
-    
-    # # W2 accessed by all clusters, store a copy in all channels    
-    # expert_w2_weights_address_0 = expert_w3_bias_address_0 + expert_w3_bias.nbytes
-    # expert_w2_weights_address_1 = expert_w3_bias_address_1 + expert_w3_bias.nbytes
-    # expert_w2_weights_address_2 = expert_w3_bias_address_2 + expert_w3_bias.nbytes
-    # expert_w2_weights_address_3 = expert_w3_bias_address_3 + expert_w3_bias.nbytes
-    # expert_w2_weights_address_4 = expert_w1_bias_address_4 + expert_w1_bias.nbytes
-    # expert_w2_weights_address_5 = expert_w1_bias_address_5 + expert_w1_bias.nbytes
-    # expert_w2_weights_address_6 = expert_w1_bias_address_6 + expert_w1_bias.nbytes
-    # expert_w2_weights_address_7 = expert_w1_bias_address_7 + expert_w1_bias.nbytes
-    # expert_w2_bias_address_0 = expert_w2_weights_address_0 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_1 = expert_w2_weights_address_1 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_2 = expert_w2_weights_address_2 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_3 = expert_w2_weights_address_3 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_4 = expert_w2_weights_address_4 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_5 = expert_w2_weights_address_5 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_6 = expert_w2_weights_address_6 + expert_w2_weights.nbytes
-    # expert_w2_bias_address_7 = expert_w2_weights_address_7 + expert_w2_weights.nbytes
-    
-    # # A copy of gate weights in all HBM channels
-    # gate_weights_address_0 = expert_w2_bias_address_0 + experts_w2_bias.nbytes
-    # gate_weights_address_1 = expert_w2_bias_address_1 + experts_w2_bias.nbytes
-    # gate_weights_address_2 = expert_w2_bias_address_2 + experts_w2_bias.nbytes
-    # gate_weights_address_3 = expert_w2_bias_address_3 + experts_w2_bias.nbytes
-    # gate_weights_address_4 = expert_w2_bias_address_4 + experts_w2_bias.nbytes
-    # gate_weights_address_5 = expert_w2_bias_address_5 + experts_w2_bias.nbytes
-    # gate_weights_address_6 = expert_w2_bias_address_6 + experts_w2_bias.nbytes
-    # gate_weights_address_7 = expert_w2_bias_address_7 + experts_w2_bias.nbytes
-    
-    # # All other data are placed only in HBM channel 0 after the gate weights
-    # in_token_address = gate_weights_address_0 + gate_weights.nbytes
-    # actual_out_address = in_token_address + in_token.nbytes
-    # golden_address = actual_out_address + actual_out.nbytes
-    ### END redundant verison ###
+    # Combine all data into a list for preloading in same sequance as tge addresseses
+    pld_data = []
+    for i in range(total_num_hbm_channels):
+        pld_data.append(expert_w1_weights_partitioned[i])
+    for i in range(total_num_hbm_channels):
+        pld_data.append(expert_w3_weights_partitioned[i])
+    for i in range(total_num_hbm_channels):
+        pld_data.append(expert_w2_weights_partitioned[i])
+    for i in range(total_num_hbm_channels):
+        pld_data.append(gate_weights)
+    for i in range(num_hbm_channels_s):
+        pld_data.append(expert_w1_bias)
+    for i in range(num_hbm_channels_w):
+        pld_data.append(expert_w3_bias)
+    for i in range(total_num_hbm_channels):
+        pld_data.append(experts_w2_bias)
         
-        
-    # Print all addresses
-    # print("in_token_address: ", hex(in_token_address))
-    # print("gate_weights_address: ", hex(gate_weights_address))
-    # print("expert_w1_weights_address: ", hex(expert_w1_weights_address))
-    # print("expert_w2_weights_address: ", hex(expert_w2_weights_address))
-    # print("expert_w3_weights_address: ", hex(expert_w3_weights_address))
-    # print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
-    # print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
-    # print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
-    # print("actual_out_address: ", hex(actual_out_address))
-    # print("golden_address: ", hex(golden_address))
-        
-    # Print data sizes
-    # print("token size: ", in_token.nbytes)
-    # print("gate_weights size: ", gate_weights.nbytes)
-    # print("expert_w1_weights size: ", expert_w1_weights.nbytes)
-    # print("expert_w1_bias size: ", expert_w1_bias.nbytes)
-    # print("expert_w2_weights size: ", expert_w2_weights.nbytes)
-    # print("experts_w2_bias size: ", experts_w2_bias.nbytes)
-    # print("expert_w3_weights size: ", expert_w3_weights.nbytes)
-    # print("expert_w3_bias size: ", expert_w3_bias.nbytes)
-    # print("actual_out size: ", actual_out.nbytes)
-    # print("golden size: ", golden.nbytes)
-    # print("total size: ", in_token.nbytes + gate_weights.nbytes + expert_w1_weights.nbytes + expert_w1_bias.nbytes + expert_w2_weights.nbytes + experts_w2_bias.nbytes + expert_w3_weights.nbytes + expert_w3_bias.nbytes + actual_out.nbytes + golden.nbytes)
-
+    # Append the trailing datas
+    pld_data.append(in_token)
+    pld_data.append(actual_out)
+    pld_data.append(golden)
+    
+    # Perform the preload
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    pld.make_preload_elf("hbm_data_opt.elf", pld_data, pld_addresses)
     
-    # TODO: use the array version for automated preloading
-    pld.make_preload_elf("hbm_data_opt.elf", 
-                            [expert_w1_weights_partitioned[0],
-                            expert_w1_weights_partitioned[1],
-                            expert_w1_weights_partitioned[2],
-                            expert_w1_weights_partitioned[3],
-                            expert_w1_weights_partitioned[4],
-                            expert_w1_weights_partitioned[5],
-                            expert_w1_weights_partitioned[6],
-                            expert_w1_weights_partitioned[7],
-                            expert_w1_bias,
-                            expert_w1_bias,
-                            expert_w1_bias,
-                            expert_w1_bias,
+    # FOR DEBUGGING PURPOSES ONLY
+    # pld_data_ref =     [
+    #                         expert_w1_weights_partitioned[0],
+    #                         expert_w1_weights_partitioned[1],
+    #                         expert_w1_weights_partitioned[2],
+    #                         expert_w1_weights_partitioned[3],
+    #                         expert_w1_weights_partitioned[4],
+    #                         expert_w1_weights_partitioned[5],
+    #                         expert_w1_weights_partitioned[6],
+    #                         expert_w1_weights_partitioned[7],
                             
-                            expert_w3_weights_partitioned[0],
-                            expert_w3_weights_partitioned[1],
-                            expert_w3_weights_partitioned[2],
-                            expert_w3_weights_partitioned[3],
-                            expert_w3_weights_partitioned[4],
-                            expert_w3_weights_partitioned[5],
-                            expert_w3_weights_partitioned[6],
-                            expert_w3_weights_partitioned[7],
-                            expert_w3_bias,
-                            expert_w3_bias,
-                            expert_w3_bias,
-                            expert_w3_bias,
+    #                         expert_w3_weights_partitioned[0],
+    #                         expert_w3_weights_partitioned[1],
+    #                         expert_w3_weights_partitioned[2],
+    #                         expert_w3_weights_partitioned[3],
+    #                         expert_w3_weights_partitioned[4],
+    #                         expert_w3_weights_partitioned[5],
+    #                         expert_w3_weights_partitioned[6],
+    #                         expert_w3_weights_partitioned[7],
                             
-                            expert_w2_weights_partitioned[0],
-                            expert_w2_weights_partitioned[1],
-                            expert_w2_weights_partitioned[2],
-                            expert_w2_weights_partitioned[3],
-                            expert_w2_weights_partitioned[4],
-                            expert_w2_weights_partitioned[5],
-                            expert_w2_weights_partitioned[6],
-                            expert_w2_weights_partitioned[7],
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            experts_w2_bias,
-                            
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            gate_weights,
-                            
-                            in_token,
-                            actual_out,
-                            golden],
-                            [expert_w1_weights_address_4_1,
-                            expert_w1_weights_address_4_2,
-                            expert_w1_weights_address_5_1,
-                            expert_w1_weights_address_5_2,
-                            expert_w1_weights_address_6_1,
-                            expert_w1_weights_address_6_2,
-                            expert_w1_weights_address_7_1,
-                            expert_w1_weights_address_7_2,
-                            expert_w1_bias_address_4,
-                            expert_w1_bias_address_5,
-                            expert_w1_bias_address_6,
-                            expert_w1_bias_address_7,
-                            
-                            expert_w3_weights_address_0_1,
-                            expert_w3_weights_address_0_2,
-                            expert_w3_weights_address_1_1,
-                            expert_w3_weights_address_1_2,
-                            expert_w3_weights_address_2_1,
-                            expert_w3_weights_address_2_2,
-                            expert_w3_weights_address_3_1,
-                            expert_w3_weights_address_3_2,
-                            expert_w3_bias_address_0,
-                            expert_w3_bias_address_1,
-                            expert_w3_bias_address_2,
-                            expert_w3_bias_address_3,
-                            
-                            expert_w2_weights_address_0,
-                            epxert_w2_weights_address_1,
-                            expert_w2_weights_address_2,
-                            expert_w2_weights_address_3,
-                            expert_w2_weights_address_4,
-                            expert_w2_weights_address_5,
-                            expert_w2_weights_address_6,
-                            expert_w2_weights_address_7,
-                            expert_w2_bias_address_0,
-                            expert_w2_bias_address_1,
-                            expert_w2_bias_address_2,
-                            expert_w2_bias_address_3,
-                            expert_w2_bias_address_4,
-                            expert_w2_bias_address_5,
-                            expert_w2_bias_address_6,
-                            expert_w2_bias_address_7,
-                            
-                            gate_weights_address_0,
-                            gate_weights_address_1,
-                            gate_weights_address_2,
-                            gate_weights_address_3,
-                            gate_weights_address_4,
-                            gate_weights_address_5,
-                            gate_weights_address_6,
-                            gate_weights_address_7,
-                            
-                            in_token_address,
-                            actual_out_address,
-                            golden_address])
-
-    # Version 4
-    # pld.make_preload_elf("hbm_data_decode.elf", 
-    #                         [expert_w1_weights, 
-    #                         expert_w1_weights, 
-    #                         expert_w1_weights, 
-    #                         expert_w1_weights, 
-    #                         expert_w1_bias, 
-    #                         expert_w1_bias, 
-    #                         expert_w1_bias, 
-    #                         expert_w1_bias, 
-                            
-    #                         expert_w3_weights, 
-    #                         expert_w3_weights, 
-    #                         expert_w3_weights, 
-    #                         expert_w3_weights, 
-    #                         expert_w3_bias, 
-    #                         expert_w3_bias, 
-    #                         expert_w3_bias, 
-    #                         expert_w3_bias, 
-                            
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         expert_w2_weights, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
-    #                         experts_w2_bias, 
+    #                         expert_w2_weights_partitioned[0],
+    #                         expert_w2_weights_partitioned[1],
+    #                         expert_w2_weights_partitioned[2],
+    #                         expert_w2_weights_partitioned[3],
+    #                         expert_w2_weights_partitioned[4],
+    #                         expert_w2_weights_partitioned[5],
+    #                         expert_w2_weights_partitioned[6],
+    #                         expert_w2_weights_partitioned[7],
                             
     #                         gate_weights,
     #                         gate_weights,
@@ -514,57 +299,42 @@ if __name__ == '__main__':
     #                         gate_weights,
     #                         gate_weights,
     #                         gate_weights,
+                            
+    #                         expert_w1_bias,
+    #                         expert_w1_bias,
+    #                         expert_w1_bias,
+    #                         expert_w1_bias,
+                            
+    #                         expert_w3_bias,
+    #                         expert_w3_bias,
+    #                         expert_w3_bias,
+    #                         expert_w3_bias,
+                            
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
+    #                         experts_w2_bias,
                             
     #                         in_token,
-    #                         actual_out, 
-    #                         golden], 
-    #                         [expert_w1_weights_address_4,
-    #                         expert_w1_weights_address_5,
-    #                         expert_w1_weights_address_6,
-    #                         expert_w1_weights_address_7,
-    #                         expert_w1_bias_address_4,
-    #                         expert_w1_bias_address_5,
-    #                         expert_w1_bias_address_6,
-    #                         expert_w1_bias_address_7,
-                            
-    #                         expert_w3_weights_address_0,
-    #                         expert_w3_weights_address_1,
-    #                         expert_w3_weights_address_2,
-    #                         expert_w3_weights_address_3,
-    #                         expert_w3_bias_address_0,
-    #                         expert_w3_bias_address_1,
-    #                         expert_w3_bias_address_2,
-    #                         expert_w3_bias_address_3,
-                            
-    #                         expert_w2_weights_address_0,
-    #                         expert_w2_weights_address_1,
-    #                         expert_w2_weights_address_2,
-    #                         expert_w2_weights_address_3,
-    #                         expert_w2_weights_address_4,
-    #                         expert_w2_weights_address_5,
-    #                         expert_w2_weights_address_6,
-    #                         expert_w2_weights_address_7,
-    #                         expert_w2_bias_address_0,
-    #                         expert_w2_bias_address_1,
-    #                         expert_w2_bias_address_2,
-    #                         expert_w2_bias_address_3,
-    #                         expert_w2_bias_address_4,
-    #                         expert_w2_bias_address_5,
-    #                         expert_w2_bias_address_6,
-    #                         expert_w2_bias_address_7,
-                            
-    #                         gate_weights_address_0,
-    #                         gate_weights_address_1,
-    #                         gate_weights_address_2,
-    #                         gate_weights_address_3,
-    #                         gate_weights_address_4,
-    #                         gate_weights_address_5,
-    #                         gate_weights_address_6,
-    #                         gate_weights_address_7,
-                            
-    #                         in_token_address,
-    #                         actual_out_address,
-    #                         golden_address
-    #                       ])
+    #                         actual_out,
+    #                         golden
+    #                         ]
+    # print("Size matching: ", len(pld_data) == len(pld_data_ref))
+    # if len(pld_data) != len(pld_data_ref):
+    #     print("pld_data size: ", len(pld_data))
+    #     print("pld_data_ref size: ", len(pld_data_ref))
+        
+    # for i in range(len(pld_data)):
+    #     if pld_data[i].all() != pld_data_ref[i].all():
+    #         print("Mismatch at index ", i)
+    #         print("pld_data: ", pld_data[i])
+    #         print("pld_data_ref: ", pld_data_ref[i])
+    #         break
+    # print("pld_data: ", pld_data)
+    # print("pld_data_ref: ", pld_data_ref)
 
 
