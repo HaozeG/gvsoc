@@ -284,7 +284,8 @@ if __name__ == '__main__':
     # print("expert_w1_bias_address: ", hex(expert_w1_bias_address))
     # print("expert_w2_bias_address: ", hex(expert_w2_bias_address))
     # print("expert_w3_bias_address: ", hex(expert_w3_bias_address))
-    # print("actual_out_address: ", hex(actual_out_address))
+    print("actual_out_address: ", hex(actual_out_address))
+    print("actual_out: ", actual_out)
     # print("golden_address: ", hex(golden_address))
         
     # Print data sizes

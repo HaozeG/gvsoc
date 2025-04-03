@@ -65,27 +65,29 @@ int main(){
     // uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
     // uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 
+#ifdef DUPLICATED
     /** HBM placement version 4 */
     // W1 stored at the beginning of channel 4, 5, 6, 7
-    // uint32_t expert_w1_weights_offset = 0;
-    // uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint32_t expert_w1_weights_offset = 0;
+    uint32_t expert_w1_bias_offset = expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
 
-    // // W3 stored at the beginning of channel 0, 1, 2, 3
-    // uint32_t expert_w3_weights_offset = 0;
-    // uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    // W3 stored at the beginning of channel 0, 1, 2, 3
+    uint32_t expert_w3_weights_offset = 0;
+    uint32_t expert_w3_bias_offset = expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
 
-    // // W2 stored in all channels following the W1/W3
-    // uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    // uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // W2 stored in all channels following the W1/W3
+    uint32_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint32_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
 
-    // // Gate weights stored in all channels following the W2 bias
-    // uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    // Gate weights stored in all channels following the W2 bias
+    uint32_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
 
-    // // All the other data stored in channel 0, following the gate weights
-    // uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
-    // uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
-    // uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    // All the other data stored in channel 0, following the gate weights
+    uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 
+#else
     /** HBM placement optimized */
     // Size of the tiles in each HBM channel (for 2 clusters)
     uint32_t w1_w3_tile_size_partitioned = 2 * TILE_WIDTH_EXPERT_0 * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
@@ -110,22 +112,36 @@ int main(){
     uint32_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
     uint32_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
     uint32_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+#endif
 
 #ifdef PRINT_DEBUG
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
-    {
+    {   
+        // FIXME: offsets are correct but addresses are same for all
         printf("[Check Preload] Addresses\n");
+        // printf("w1_w3_tile_size_partitioned: %d\n", w1_w3_tile_size_partitioned);
+        // printf("w2_tile_size_partitioned: %d\n", w2_tile_size_partitioned);
+        printf("in_token_offset: 0x%x\n", in_token_offset);
         printf("in_token: 0x%x\n", hbm_addr(in_token_offset));
+        printf("gate_weights_offset: 0x%x\n", gate_weights_offset);
         printf("gate_weight: 0x%x\n", hbm_addr(gate_weights_offset));
         // printf("expert_w1_weight: 0x%x\n", hbm_addr(expert_w1_weights_offset));
-        printf("expert_w1_weight: 0x%x\n", hbm_south(0, expert_w1_weights_offset));    // For distributed version
+        printf("expert_w1_weights_offset: 0x%x\n", expert_w1_weights_offset);    // For centralized version
+        printf("expert_w1_weight: 0x%x\n", hbm_south(0, expert_w1_weights_offset));    // For duplicated/distributed version
         // printf("expert_w1_bias: 0x%x\n", hbm_addr(expert_w1_bias_offset));
-        printf("expert_w1_bias: 0x%x\n", hbm_south(0, expert_w1_bias_offset));         // For distributed version
+        printf("expert_w1_bias_offset: 0x%x\n", expert_w1_bias_offset);         // For centralized version
+        printf("expert_w1_bias: 0x%x\n", hbm_south(0, expert_w1_bias_offset));         // For duplicated/distributed version
+        printf("expert_w2_weights_offset: 0x%x\n", expert_w2_weights_offset);   // For centralized version
         printf("expert_w2_weight: 0x%x\n", hbm_addr(expert_w2_weights_offset));
+        printf("expert_w2_bias_offset: 0x%x\n", expert_w2_bias_offset);         // For centralized version
         printf("expert_w2_bias: 0x%x\n", hbm_addr(expert_w2_bias_offset));
+        printf("expert_w3_weights_offset: 0x%x\n", expert_w3_weights_offset);   // For centralized version
         printf("expert_w3_weight: 0x%x\n", hbm_addr(expert_w3_weights_offset));
+        printf("expert_w3_bias_offset: 0x%x\n", expert_w3_bias_offset);         // For centralized version
         printf("expert_w3_bias: 0x%x\n", hbm_addr(expert_w3_bias_offset));
+        printf("actual_out_offset: 0x%x\n", actual_out_offset);
         printf("actual: 0x%x\n", hbm_addr(actual_out_offset));
+        printf("golden_out_offset: 0x%x\n", golden_out_offset);
         printf("golden: 0x%x\n", hbm_addr(golden_out_offset));
         printf("n_token: %x\n", n_token);
         printf("dim: %d\n", dim);
@@ -259,6 +275,31 @@ int main(){
     //     printf("0x%04x * 0x%04x = 0x%04x\n", in1, in2, out);
     // }
 
+    // BEGIN Broadcast debug code
+    // Broadcast the input token to all clusters
+    // uint32_t local_token_offset, local_token_addr, token_size;
+    // local_token_offset = 0;
+    // // local_token_addr = local(local_token_offset);
+    // token_size = n_token * dim * DATA_SIZE_BYTES;
+    // broadcast_to_all_clusters(local_token_offset, hbm_addr(in_token_offset), token_size);
+    // flex_global_barrier_xy();
+
+    // for(int cid = 0; cid < 16; cid++){
+    //     flex_global_barrier_xy();
+    //     if (flex_is_first_core() && (flex_get_cluster_id()==cid))
+    //     {
+    //         printf("Cluster %d: ", cid);
+    //         for (int i = 0; i < n_token * dim; i++) { // Ensure correct bounds
+    //             printf("Token in HBM: 0x%04x \n", ((uint16_t *)(hbm_addr(in_token_offset)))[i]);
+    //             printf("Local token after broadcast: 0x%04x \n", ((uint16_t *)(local(local_token_offset)))[i]);
+    //         }
+    //         printf("\n");
+    //         flex_global_barrier_xy();
+    //     }
+    //     flex_global_barrier_xy();
+    // }
+    // END Broadcast debug code
+
     compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
 
     // cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
@@ -325,6 +366,7 @@ int main(){
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
         printf("[Check Results]\n");
+
         printf("actual_out:\n");
         for (int i = 0; i < n_token; i++) {
             printf("    ");

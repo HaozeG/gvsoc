@@ -13,6 +13,9 @@ hbm_pld_opt:
 hw_512:
 	cfg=$(abspath config/arch_NoC512.py) make -C ../ hw
 
+hw_spatz:
+	cfg=$(abspath config/arch_NoC512_spatz.py) make -C ../ hw
+
 hw_16hbm:
 	cfg=$(abspath config/arch_hbm16_NoC512.py) make -C ../ hw
 
@@ -76,6 +79,9 @@ sw_decode_clean:
 
 sw_decode_clean_spatz:
 	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw run
+
+sw_decode_clean_spatz_pfto:
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
 
 sw_decode_clean_pfto:
 	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
