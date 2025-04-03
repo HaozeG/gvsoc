@@ -27,6 +27,7 @@
         "regex": "c",
         "valarray": "c",
         "utility": "c",
-        "moe_decode_centralized.h": "c"
+        "moe_decode_centralized.h": "c",
+        "flex_group_barrier.h": "c"
     }
 }

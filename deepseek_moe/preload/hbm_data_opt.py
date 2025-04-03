@@ -168,14 +168,16 @@ if __name__ == '__main__':
     n_total_experts = n_routed_experts + n_shared_experts
     expert_w1_weights_partitioned = partition_matrices(expert_w1_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
     expert_w3_weights_partitioned = partition_matrices(expert_w3_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
-    # print("partitioned_expert_w1:", expert_w1_weights_partitioned)
-    # print("partitioned_expert_w1 shape:", expert_w1_weights_partitioned.shape)
+    
+    print("partitioned_expert_w1:", expert_w1_weights_partitioned)
+    print("partitioned_expert_w1 shape:", expert_w1_weights_partitioned.shape)
     
     # # Partition W2 matrix into vertical tiles
     tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
     expert_w2_weights_partitioned = partition_matrices(expert_w2_weights, n_total_experts, dim, moe_inter_dim, tile_width_w2)
-    # print("partitioned_expert_w2:", expert_w2_weights_partitioned)
-    # print("partitioned_expert_w2 shape:", expert_w2_weights_partitioned.shape)
+    
+    print("partitioned_expert_w2:", expert_w2_weights_partitioned)
+    print("partitioned_expert_w2 shape:", expert_w2_weights_partitioned.shape)
     
     # Map partitioned matrices to HBM channels
     # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
