@@ -781,7 +781,7 @@ void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, 
                 n_cluster_activated += 1;
             }
         }
-        uint32_t local_in, local_in_const, local_out;
+        uint32_t local_in, local_out;
         
         uint32_t n_element_per_cluster;
         #ifdef SPATZ_ENABLE
@@ -800,22 +800,13 @@ void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, 
             // load data: one dma transfer per cluster
             n_element_per_cluster = min(n_element_per_cluster, dim * n_token - i_element_cluster);
             local_in = ARCH_CLUSTER_TCDM_SIZE - n_element_per_cluster * DATA_SIZE_BYTES;
-            local_in_const = local_in - SPATZ_VL * DATA_SIZE_BYTES;
-            local_out = local_in_const - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out = local_in - n_element_per_cluster * DATA_SIZE_BYTES;
             // load input value
             if (flex_is_dm_core()) {
                 flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
                 flex_dma_async_wait_all();
             }
             
-            uint16_t * local_in_const_ptr = (uint16_t *)local(local_in_const);
-            // load constant value
-            if (0 == core_id) {
-                for (int i = 0; i < SPATZ_VL; i++) {
-                    // printf("");
-                    local_in_const_ptr[i] = (uint16_t)in_const;
-                }
-            }
             // make sure data is ready
             flex_intra_cluster_sync();
             
@@ -826,15 +817,16 @@ void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, 
                 // compute element-wise operation with spatz core
                 uint16_t vl;
                 uint16_t i_element = 0;
+                // Load FP16 value into a floating-point register
+                asm volatile("fmv.h.x ft0, %0" : : "r"(in_const));
                 while (n_element_per_cluster > i_element) {
                     // printf("");
-                    // TODO: consider using vector-scalar multiplication
                     asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, n_element_per_cluster - i_element)));
                     asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
-                    asm volatile("vle16.v v1, (%0)" : : "r"(local_in_const_ptr));
                     
                     if (op == mul_op) {
-                        asm volatile("vfmul.vv v8, v0, v1");
+                        // Perform vector-scalar multiplication
+                        asm volatile("vfmul.vf v8, v0, ft0");
                     } else {
                         // Unsupported operation
                     }
