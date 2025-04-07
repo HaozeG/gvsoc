@@ -20,9 +20,11 @@
 // #define TILE_WIDTH 256
 #define TILE_WIDTH_GATE 16
 // used for w1 and w3
-#define TILE_WIDTH_EXPERT_0 64
+// #define TILE_WIDTH_EXPERT_0 64
+#define TILE_WIDTH_EXPERT_0 256
 // used for w2
-#define TILE_WIDTH_EXPERT_1 64
+// #define TILE_WIDTH_EXPERT_1 64
+#define TILE_WIDTH_EXPERT_1 448
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 16
 #define SPATZ_VL 256
@@ -123,6 +125,7 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
             cluster_offset = (cluster_id / ARCH_NUM_CLUSTER_X) * ARCH_HBM_NODE_ADDR_SPACE;
         }
 
+        // TODO: numerical verification required
         uint16_t addr_shift;
         if (tile_width == TILE_WIDTH_GATE) {
             addr_shift = 3;
@@ -235,7 +238,9 @@ void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K
                         flex_dma_sync_2d(local(load_dest_A), A + ((K * (tile_width * gi + i * block_width_i)) + bK) * DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES, K*DATA_SIZE_BYTES, m_tile);
                         // for gemv: m_tile = 1
                         // flex_dma_async_1d(local(load_dest_A), A + ((K * (tile_width * gi + i * block_width_i)) + bK) * DATA_SIZE_BYTES, k_tile*DATA_SIZE_BYTES);
-                        // flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES + cluster_offset, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
+#ifdef DUPLICATED
+                        flex_dma_sync_2d(local(load_dest_B), B + (N * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES + cluster_offset, n_tile*DATA_SIZE_BYTES,  n_tile*DATA_SIZE_BYTES, N*DATA_SIZE_BYTES, k_tile);
+#endif
                         flex_dma_async_1d(local(load_dest_B), B + ((N >> addr_shift) * bK + tile_width * gj + j * block_width_j) * DATA_SIZE_BYTES + cluster_offset, n_tile*k_tile*DATA_SIZE_BYTES);
                         flex_dma_async_wait_all();
                     }
@@ -1180,13 +1185,13 @@ void compute_moe(uint64_t in_token_addr, uint16_t n_token, uint16_t dim, uint16_
     uint32_t w1_w3_tile_size_partitioned, w2_tile_size_partitioned, num_hbm_channels;
     // static const int arch_hbm_chan_placement[] = ARCH_HBM_CHAN_PLACEMENT;
 
-    // TODO: remove hardcoding, need to get the info somwhere else (ARCH_HBM_CHAN_PLACEMENT not an array)
-    num_hbm_channels = 8;
+    // ARCH_HBM_CHAN_PLACEMENT not an array, need to get the info somwhere else
+    // num_hbm_channels = 8;
+    // w1_w3_tile_size_partitioned = dim * (inter_dim / num_hbm_channels) * DATA_SIZE_BYTES;
+    // w2_tile_size_partitioned = inter_dim * (dim / num_hbm_channels) * DATA_SIZE_BYTES;
     // for (uint8_t i = 0; i < 4; i++) {
     //     num_hbm_channels += arch_hbm_chan_placement[i];   // Total number of HBM channels
     // }
-    w1_w3_tile_size_partitioned = dim * (inter_dim / num_hbm_channels) * DATA_SIZE_BYTES;
-    w2_tile_size_partitioned = inter_dim * (dim / num_hbm_channels) * DATA_SIZE_BYTES;
     
     // Routed experts
     // self.w2.forward(silu(self.w1.forward(x)) * self.w3.forward(x))

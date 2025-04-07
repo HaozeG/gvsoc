@@ -5,7 +5,7 @@ import os
 config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'config'))
 sys.path.append(config_dir)
 
-from arch_NoC512 import FlexClusterArch       # Read the hardware config for data placement
+from arch_NoC512_spatz import FlexClusterArch       # Read the hardware config for data placement
 # from arch_hbm16_NoC512 import FlexClusterArch
 import DeepseekMoE
 import numpy as np
@@ -50,8 +50,9 @@ def map_w1w3_to_hbm(partitioned_weight_matrices, n_hbm_channels_utilized, hbm_ba
         tiles_per_channel = len(partitioned_weight_matrices) // n_hbm_channels_utilized
         for j in range(tiles_per_channel):
             weights_addresses.append(hbm_base + (i * hbm_node_addr_space) + (j * tile_size))
-            if j == tiles_per_channel - 1:
-                bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size))
+            bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + tiles_per_channel) * tile_size))
+            # if j == tiles_per_channel - 1:
+            #     bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size))
 
     return weights_addresses, bias_addresses
 
@@ -136,14 +137,14 @@ if __name__ == '__main__':
     total_num_hbm_channels = num_hbm_channels_w + num_hbm_channels_n + num_hbm_channels_e + num_hbm_channels_s
     
     # Print the hardware architecture configuration
-    # print("HBM base address: ", hex(hbm_base_addr))
-    # print("HBM node address space: ", hex(hbm_node_addr_space))
-    # print("Number of HBM channels (West): ", num_hbm_channels_w)
-    # print("Number of HBM channels (North): ", num_hbm_channels_n)
-    # print("Number of HBM channels (East): ", num_hbm_channels_e)
-    # print("Number of HBM channels (South): ", num_hbm_channels_s)
-    # print("Number of clusters in X direction: ", num_cluster_x)
-    # print("Number of clusters in Y direction: ", num_cluster_y)
+    print("HBM base address: ", hex(hbm_base_addr))
+    print("HBM node address space: ", hex(hbm_node_addr_space))
+    print("Number of HBM channels (West): ", num_hbm_channels_w)
+    print("Number of HBM channels (North): ", num_hbm_channels_n)
+    print("Number of HBM channels (East): ", num_hbm_channels_e)
+    print("Number of HBM channels (South): ", num_hbm_channels_s)
+    print("Number of clusters in X direction: ", num_cluster_x)
+    print("Number of clusters in Y direction: ", num_cluster_y)
     
     # Base address maps of HBM channels
     # hbm_ch0_addr = hbm_base_addr
@@ -172,12 +173,22 @@ if __name__ == '__main__':
     print("partitioned_expert_w1:", expert_w1_weights_partitioned)
     print("partitioned_expert_w1 shape:", expert_w1_weights_partitioned.shape)
     
+    expert_w1_bias_partitioned = partition_matrices(expert_w1_bias, n_total_experts, moe_inter_dim, 1, tile_width_w1_w3)
+    expert_w3_bias_partitioned = partition_matrices(expert_w3_bias, n_total_experts, moe_inter_dim, 1, tile_width_w1_w3)
+    
+    print("partitioned_expert_w1_bias:", expert_w1_bias_partitioned)
+    print("partitioned_expert_w1_bias shape:", expert_w1_bias_partitioned.shape)
+    
     # # Partition W2 matrix into vertical tiles
     tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
     expert_w2_weights_partitioned = partition_matrices(expert_w2_weights, n_total_experts, dim, moe_inter_dim, tile_width_w2)
     
     print("partitioned_expert_w2:", expert_w2_weights_partitioned)
     print("partitioned_expert_w2 shape:", expert_w2_weights_partitioned.shape)
+    
+    expert_w2_bias_partitioned = partition_matrices(experts_w2_bias, n_total_experts, dim, 1, tile_width_w2)
+    print("partitioned_expert_w2_bias:", expert_w2_bias_partitioned)
+    print("partitioned_expert_w2_bias shape:", expert_w2_bias_partitioned.shape)
     
     # Map partitioned matrices to HBM channels
     # W1 accessed by coloring 0, store in channel 4, 5, 6, 7
@@ -201,14 +212,20 @@ if __name__ == '__main__':
     tile_size_w2 = expert_w2_weights_partitioned.nbytes // len(expert_w2_weights_partitioned)
     expert_w2_weights_addresses = []
     expert_w2_bias_addresses = []
+    jump_index = 1
     for i in range(num_hbm_channels_w):
-        expert_w2_weights_addresses.append(expert_w3_bias_addresses[i] + expert_w3_bias.nbytes)
+        # expert_w2_weights_addresses.append(expert_w3_bias_addresses[i] + expert_w3_bias.nbytes)
+        expert_w2_weights_addresses.append(expert_w3_bias_addresses[jump_index] + 2 * (expert_w3_bias.nbytes // len(expert_w3_bias_partitioned)))
         expert_w2_bias_addresses.append(expert_w2_weights_addresses[i] + tile_size_w2)
-        
+        jump_index += 2
+    
+    jump_index = 1
     for i in range(num_hbm_channels_s):
         j = i + num_hbm_channels_w
-        expert_w2_weights_addresses.append(expert_w1_bias_addresses[i] + expert_w1_bias.nbytes)
+        # expert_w2_weights_addresses.append(expert_w1_bias_addresses[i] + expert_w1_bias.nbytes)
+        expert_w2_weights_addresses.append(expert_w1_bias_addresses[jump_index] + 2 * (expert_w1_bias.nbytes // len(expert_w1_bias_partitioned)))
         expert_w2_bias_addresses.append(expert_w2_weights_addresses[j] + tile_size_w2)
+        jump_index += 2
         
     print("expert_w2_weights_addresses: ", [hex(addr) for addr in expert_w2_weights_addresses])
     print("expert_w2_bias_addresses: ", [hex(addr) for addr in expert_w2_bias_addresses])
@@ -250,11 +267,14 @@ if __name__ == '__main__':
     for i in range(len(gate_weights_addresses)):
         pld_data.append(gate_weights)
     for i in range(len(expert_w1_bias_addresses)):
-        pld_data.append(expert_w1_bias)
+        # pld_data.append(expert_w1_bias)
+        pld_data.append(expert_w1_bias_partitioned[i])
     for i in range(len(expert_w3_bias_addresses)):
-        pld_data.append(expert_w3_bias)
+        # pld_data.append(expert_w3_bias)
+        pld_data.append(expert_w3_bias_partitioned[i])
     for i in range(len(expert_w2_bias_addresses)):
-        pld_data.append(experts_w2_bias)
+        # pld_data.append(experts_w2_bias)
+        pld_data.append(expert_w2_bias_partitioned[i])
         
     # Append the trailing data
     pld_data.append(in_token)
