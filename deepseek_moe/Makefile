@@ -48,43 +48,34 @@ sw_moe_pld_pfto: hbm_pld
 # Decode
 
 hs_decode:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ hs run
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ hs run
 
 hs_decode_opt:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ hs run
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ hs run
 
 sw_decode:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ sw run
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_decode.elf) make -C ../ sw run
 
 sw_decode_opt:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ sw run
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ sw run
 
 hs_decode_pfto:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ hs runv pfto
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ hs runv pfto
 
 sw_decode_pfto:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ sw runv pfto
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) pld=$(abspath preload/hbm_data_opt.elf) make -C ../ sw runv pfto
 
 hs_decode_clean:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs run
-
-hs_decode_clean_spatz:
 	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ hs run
 
 hs_decode_clean_pfto:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ hs runv pfto
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ hs runv pfto
 
 sw_decode_clean:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw run
-
-sw_decode_clean_spatz:
 	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw run
 
-sw_decode_clean_spatz_pfto:
-	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
-
 sw_decode_clean_pfto:
-	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
+	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_decode) make -C ../ sw runv pfto
 
 # Centralized decode
 sw_decode_centralized:

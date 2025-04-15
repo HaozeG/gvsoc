@@ -20,6 +20,9 @@ def partition_matrices(matrices, n_matrices, width, rows, tile_width):
     # TODO: Handle the case where width is not divisible by tile_width
     assert width % tile_width == 0
     n_tiles = width // tile_width
+    # print("Data type of width:", type(width))
+    # print("Data type of tile_width:", type(tile_width))
+    # print("Data type of n_tiles:", type(n_tiles))
     # matrix_size = width * rows
     
     matrices = matrices.reshape((n_matrices, rows, width))
@@ -42,15 +45,15 @@ def partition_matrices(matrices, n_matrices, width, rows, tile_width):
 
 
 # Function to map expert weights and biases to HBM addresses
-def map_w1w3_to_hbm(partitioned_weight_matrices, n_hbm_channels_utilized, hbm_base, hbm_node_addr_space, tile_size):
+def map_w1w3_to_hbm(partitioned_weight_matrices, n_hbm_nodes, hbm_base, hbm_node_addr_space, tile_size):
     weights_addresses = []
     bias_addresses = []
     
-    for i in range(n_hbm_channels_utilized):
-        tiles_per_channel = len(partitioned_weight_matrices) // n_hbm_channels_utilized
+    for i in range(n_hbm_nodes):
+        tiles_per_channel = len(partitioned_weight_matrices) // n_hbm_nodes
         for j in range(tiles_per_channel):
-            weights_addresses.append(hbm_base + (i * hbm_node_addr_space) + (j * tile_size))
-            bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + tiles_per_channel) * tile_size))
+            weights_addresses.append(np.int64(hbm_base + (i * hbm_node_addr_space) + (j * tile_size)))
+            bias_addresses.append(np.int64(hbm_base + (i * hbm_node_addr_space) + ((j + tiles_per_channel) * tile_size)))
             # if j == tiles_per_channel - 1:
             #     bias_addresses.append(hbm_base + (i * hbm_node_addr_space) + ((j + 1) * tile_size))
 
@@ -128,10 +131,10 @@ if __name__ == '__main__':
     # Read the hardwre architecture configuration from the config file
     hbm_base_addr       = arch.hbm_start_base
     hbm_node_addr_space = arch.hbm_node_addr_space
-    num_hbm_channels_w  = arch.hbm_chan_placement[0]     # West HBM
-    num_hbm_channels_n  = arch.hbm_chan_placement[1]     # North HBM
-    num_hbm_channels_e  = arch.hbm_chan_placement[2]     # South HBM
-    num_hbm_channels_s  = arch.hbm_chan_placement[3]     # East HBM
+    num_hbm_channels_w  = arch.hbm_chan_placement[0] // arch.num_node_per_ctrl     # West HBM
+    num_hbm_channels_n  = arch.hbm_chan_placement[1] // arch.num_node_per_ctrl     # North HBM
+    num_hbm_channels_e  = arch.hbm_chan_placement[2] // arch.num_node_per_ctrl     # South HBM
+    num_hbm_channels_s  = arch.hbm_chan_placement[3] // arch.num_node_per_ctrl     # East HBM
     num_cluster_x       = arch.num_cluster_x
     num_cluster_y       = arch.num_cluster_y
     total_num_hbm_channels = num_hbm_channels_w + num_hbm_channels_n + num_hbm_channels_e + num_hbm_channels_s
@@ -159,13 +162,17 @@ if __name__ == '__main__':
     hbm_east_base = hbm_base_addr + hbm_node_addr_space * (num_cluster_y + num_cluster_x)
     hbm_south_base = hbm_base_addr + hbm_node_addr_space * (2 * num_cluster_y + num_cluster_x)
     
+    print("HBM West base address: ", hex(hbm_west_base))
+    print("HBM South base address: ", hex(hbm_south_base))
+    
     # hbm_ch4_addr = hbm_south_base
     # hbm_ch5_addr = hbm_south_base + hbm_node_addr_space
     # hbm_ch6_addr = hbm_south_base + hbm_node_addr_space * 2
     # hbm_ch7_addr = hbm_south_base + hbm_node_addr_space * 3
     
     # Partition W1 and W3 matrices into vertical tiles
-    tile_width_w1_w3 = moe_inter_dim // (num_hbm_channels_s + num_hbm_channels_w)
+    # tile_width_w1_w3 = moe_inter_dim // (num_hbm_channels_s + num_hbm_channels_w)
+    tile_width_w1_w3 = moe_inter_dim // (num_cluster_x + num_cluster_y)
     n_total_experts = n_routed_experts + n_shared_experts
     expert_w1_weights_partitioned = partition_matrices(expert_w1_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
     expert_w3_weights_partitioned = partition_matrices(expert_w3_weights, n_total_experts, moe_inter_dim, dim, tile_width_w1_w3)
@@ -180,7 +187,8 @@ if __name__ == '__main__':
     print("partitioned_expert_w1_bias shape:", expert_w1_bias_partitioned.shape)
     
     # # Partition W2 matrix into vertical tiles
-    tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
+    # tile_width_w2 = dim // (num_hbm_channels_s + num_hbm_channels_w)
+    tile_width_w2 = dim // (num_cluster_x + num_cluster_y)  
     expert_w2_weights_partitioned = partition_matrices(expert_w2_weights, n_total_experts, dim, moe_inter_dim, tile_width_w2)
     
     print("partitioned_expert_w2:", expert_w2_weights_partitioned)
@@ -195,7 +203,7 @@ if __name__ == '__main__':
     tile_size_w1_w3 = expert_w1_weights_partitioned.nbytes // len(expert_w1_weights_partitioned)
     expert_w1_weights_addresses = []
     expert_w1_bias_addresses = []
-    expert_w1_weights_addresses, expert_w1_bias_addresses = map_w1w3_to_hbm(expert_w1_weights_partitioned, num_hbm_channels_s, hbm_south_base, hbm_node_addr_space, tile_size_w1_w3)
+    expert_w1_weights_addresses, expert_w1_bias_addresses = map_w1w3_to_hbm(expert_w1_weights_partitioned, num_cluster_x, hbm_south_base, hbm_node_addr_space, tile_size_w1_w3)
         
     print("expert_w1_weights_addresses: ", [hex(addr) for addr in expert_w1_weights_addresses])
     print("expert_w1_bias_addresses: ", [hex(addr) for addr in expert_w1_bias_addresses])
@@ -203,7 +211,7 @@ if __name__ == '__main__':
     # W3 accessed by coloring 1, store in channel 0, 1, 2, 3
     expert_w3_weigts_addresses = []
     expert_w3_bias_addresses = []                
-    expert_w3_weigts_addresses, expert_w3_bias_addresses = map_w1w3_to_hbm(expert_w3_weights_partitioned, num_hbm_channels_w, hbm_west_base, hbm_node_addr_space, tile_size_w1_w3)
+    expert_w3_weigts_addresses, expert_w3_bias_addresses = map_w1w3_to_hbm(expert_w3_weights_partitioned, num_cluster_y, hbm_west_base, hbm_node_addr_space, tile_size_w1_w3)
                 
     print("expert_w3_weigts_addresses: ", [hex(addr) for addr in expert_w3_weigts_addresses])
     print("expert_w3_bias_addresses: ", [hex(addr) for addr in expert_w3_bias_addresses])
@@ -213,15 +221,16 @@ if __name__ == '__main__':
     expert_w2_weights_addresses = []
     expert_w2_bias_addresses = []
     jump_index = 1
-    for i in range(num_hbm_channels_w):
+    for i in range(num_cluster_y):
         # expert_w2_weights_addresses.append(expert_w3_bias_addresses[i] + expert_w3_bias.nbytes)
         expert_w2_weights_addresses.append(expert_w3_bias_addresses[jump_index] + 2 * (expert_w3_bias.nbytes // len(expert_w3_bias_partitioned)))
         expert_w2_bias_addresses.append(expert_w2_weights_addresses[i] + tile_size_w2)
         jump_index += 2
     
     jump_index = 1
-    for i in range(num_hbm_channels_s):
-        j = i + num_hbm_channels_w
+    for i in range(num_cluster_x):
+        # j = i + num_hbm_channels_w
+        j = i + num_cluster_x
         # expert_w2_weights_addresses.append(expert_w1_bias_addresses[i] + expert_w1_bias.nbytes)
         expert_w2_weights_addresses.append(expert_w1_bias_addresses[jump_index] + 2 * (expert_w1_bias.nbytes // len(expert_w1_bias_partitioned)))
         expert_w2_bias_addresses.append(expert_w2_weights_addresses[j] + tile_size_w2)
@@ -232,7 +241,7 @@ if __name__ == '__main__':
 
     # A copy of gate weights in all HBM channels
     gate_weights_addresses = []
-    for i in range(num_hbm_channels_w + num_hbm_channels_s):
+    for i in range(num_cluster_x + num_cluster_y):
         gate_weights_addresses.append(expert_w2_bias_addresses[i] + experts_w2_bias.nbytes)
     
     print("gate_weights_addresses: ", [hex(addr) for addr in gate_weights_addresses])
@@ -253,8 +262,11 @@ if __name__ == '__main__':
         expert_w2_bias_addresses +
         [in_token_address, actual_out_address, golden_address]
     )
-    # print("pld_addresses: ", [hex(addr) for addr in pld_addresses])
-    # print("ple_addresess shape: ", len(pld_addresses))
+    print("pld_addresses: ", [hex(addr) for addr in pld_addresses])
+    print("pld_addresses shape: ", len(pld_addresses))
+    # Print the data type of each element in pld_addresses
+    # for i, addr in enumerate(pld_addresses):
+    #     print(f"pld_addresses[{i}] type: {type(addr)}")
     
     # Combine all data into a list for preloading in same sequance as tge addresseses
     pld_data = []
