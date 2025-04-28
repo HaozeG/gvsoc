@@ -7,7 +7,8 @@
 #include "flex_dma_pattern.h"
 // #include "moe.h"
 // #include "moe_decode_centralized.h"
-#include "moe_decode.h"
+// #include "moe_decode.h"
+#include "moe_prefill.h"
 // #define PRINT_DEBUG 0
 
 int main();
@@ -91,6 +92,19 @@ int main(){
     uint64_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
     uint64_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
     uint64_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    #endif
+#ifdef MOE_PREFILL_H
+    uint64_t expert_w1_weights_offset = 0;
+    uint64_t expert_w1_bias_offset = expert_w1_weights_offset + (dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y);
+    uint64_t expert_w3_weights_offset = 0;
+    uint64_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_X;
+
+    uint64_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    uint64_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    uint64_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 #endif
 
 #ifdef PRINT_DEBUG
@@ -111,22 +125,43 @@ int main(){
         printf("inter_dim: %d\n", (uint32_t)inter_dim);
         printf("n_routed_experts: %d\n", (uint32_t)n_routed_experts);
     }
-    
+    // if (flex_is_dm_core() && flex_get_cluster_id() == 0){
+    //     uint64_t offset = (uint64_t)ARCH_HBM_NODE_ADDR_SPACE * (2 * ARCH_NUM_CLUSTER_Y + ARCH_NUM_CLUSTER_X + 1);
+    //     uint32_t expert_w1_weights_tcdm = 0;
+    //     for (int i = 0; i < 16; i++) {
+    //         for (int j = 0; j < inter_dim / 4; j++) {
+    //             ((uint16_t *)(local(expert_w1_weights_tcdm)))[j + i * inter_dim / 4] = (uint16_t)0x3c00 + j * 4;
+    //         }
+    //     }
+    //     flex_dma_async_1d( hbm_addr(expert_w1_weights_offset) + offset, local(expert_w1_weights_tcdm), dim * inter_dim * DATA_SIZE_BYTES / 4);
+    //     flex_dma_async_wait_all();
+    // }
     // First element of each matrix
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
-        // ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 0 * dim] = (uint16_t)0x3c00;
         // ((uint16_t *)(hbm_addr(in_token_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
         // ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 0 * dim] = (uint16_t)0x4000;
         // ((uint16_t *)(hbm_addr(gate_weights_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
         // ((uint16_t *)(hbm_addr(gate_weights_offset)))[2 + 0 * dim] = (uint16_t)0x4000;
         // ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 1 * n_routed_experts] = (uint16_t)0x3c00;
         // for (int i = 0; i < dim; i++) {
-        //     ((uint16_t *)(hbm_addr(in_token_offset)))[i] = (uint16_t)0x211F;
+        //     ((uint16_t *)(hbm_addr(in_token_offset)))[i] = (uint16_t)(0x211F + i*16);
         // }
+        // ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 0 * dim] = (uint16_t)0x3c00;
         // for (int i = 0; i < n_routed_experts; i++) {
-        //     for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < dim/8; j++) {
         //         ((uint16_t *)(hbm_addr(gate_weights_offset)))[j + i * dim] = (uint16_t)0x4000;
+        //     }
+        // }
+
+        // for (int i = 0; i < dim; i++) {
+        //     for (int j = 0; j < inter_dim/4; j++) {
+        //         ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim] = (uint16_t)0x3c00;
+        //     }
+        // }
+        // for (int i = 0; i < inter_dim; i++) {
+        //     for (int j = 0; j < dim/8; j++) {
+        //         ((uint16_t *)(hbm_addr(expert_w2_weights_offset)))[j + i * inter_dim] = (uint16_t)0x3c00;
         //     }
         // }
 
@@ -137,6 +172,7 @@ int main(){
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 16; j++) {
+                uint16_t * in_token_ptr = (uint16_t *)(hbm_addr(in_token_offset));
                 printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(in_token_offset) + (j + i * dim) * DATA_SIZE_BYTES));
             }
             printf("\n");
@@ -272,6 +308,9 @@ int main(){
     // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
     //     printf("0x%04x * 0x%04x = 0x%04x\n", in1, in2, out);
     // }
+#endif
+#ifdef MOE_PREFILL_H
+    compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
 #endif
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
