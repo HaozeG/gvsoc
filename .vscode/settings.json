@@ -1,4 +1,5 @@
 {
+    "makefile.configureOnOpen": false,
     "files.associations": {
         "*.cpp": "cpp",
         "limits": "c",
@@ -14,20 +15,6 @@
         "*.tcc": "cpp",
         "type_traits": "cpp",
         "tuple": "cpp",
-        "compare": "cpp",
-        "cstdint": "cpp",
-        "flex_printf.h": "c",
-        "bitset": "c",
-        "rope": "c",
-        "slist": "c",
-        "format": "c",
-        "ranges": "c",
-        "span": "c",
-        "stacktrace": "c",
-        "regex": "c",
-        "valarray": "c",
-        "utility": "c",
-        "moe_decode_centralized.h": "c",
-        "flex_group_barrier.h": "c"
+        "flex_dma_pattern.h": "c"
     }
 }

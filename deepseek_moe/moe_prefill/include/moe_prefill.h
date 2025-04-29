@@ -1,0 +1,1314 @@
+#ifndef MOE_PREFILL_H
+#define MOE_PREFILL_H
+
+#include <math.h>
+#include "flex_runtime.h"
+#include "flex_printf.h"
+#include "flex_redmule.h"
+#include "flex_cluster_arch.h"
+#include "flex_dma_pattern.h"
+#include "flex_group_barrier.h"
+#include "flex_libfp16.h"
+
+// #define DUPLICATED
+
+#define SPATZ_ENABLE
+#define SYNC_REDUCE
+
+// use float16 as data type
+#define DATA_SIZE_BYTES 2
+// Parameters for GEMV
+// NOTE: designed such that TILE_WIDTH * 8 = width of output matrix
+// This is for dedicated preload data distribution to enable 1d DMA
+// NOTE: the following TILE_WIDTH should be different to each other, otherwise change the addr_shift value 
+#define TILE_WIDTH_TOKENS 4
+// #define TILE_WIDTH 256
+#define TILE_WIDTH_GATE 16
+// #define TILE_WIDTH_GATE 256
+// used for w1 and w3
+#define TILE_WIDTH_EXPERT_0 64
+// #define TILE_WIDTH_EXPERT_0 256
+// used for w2
+#define TILE_WIDTH_EXPERT_1 64
+// #define TILE_WIDTH_EXPERT_1 448
+// #define TILE_WIDTH_EXPERT_1 224
+// Parameter for element-wise functions
+#define ELEMENT_WISE_TILE_WIDTH 16
+#define SPATZ_VL 256
+#define SPATZ_VL_MIN 8
+
+typedef void (*element_wise_op_1_in_t)(const fp16* input, fp16* output);
+typedef void (*element_wise_op_2_in_t)(const fp16* input1, const fp16* input2, fp16* output);
+typedef void (*element_wise_op_2_in_const_t)(const fp16* input1, const fp16* in_const, fp16* output);
+// NOTE: designed for NUM_CLUSTER <= 16
+typedef uint16_t cluster_map_t;
+// 2.5 in float
+fp16 route_scale = (fp16)0x4100;
+
+typedef struct GemmSystolicInfo
+{
+    //General information
+    uint32_t matrix_M;
+    uint32_t matrix_N;
+    uint32_t matrix_K;
+
+    //Tile Information
+    uint32_t tile_dimension_M;
+    uint32_t tile_dimension_N;
+    uint32_t tile_dimension_K;
+    uint32_t elem_size;
+    uint32_t tile_size_byte_X;
+    uint32_t tile_size_byte_W;
+    uint32_t tile_size_byte_Y;
+
+    //L1 addr
+    uint32_t X_offset_1;
+    uint32_t W_offset_1;
+    uint32_t X_offset_2;
+    uint32_t W_offset_2;
+    uint32_t Y_offset;
+
+    //Iteration
+    uint32_t XW_tile_length;
+    uint32_t Z_tile_on_row;
+    uint32_t Z_tile_on_col;
+    uint32_t Z_tile_all;
+    uint32_t systolic_delay;
+
+    uint32_t total_iter;
+
+    //Current Actions
+    uint32_t dma_runing;
+    uint32_t redmule_runing;
+
+    //Recorded Actions
+    uint32_t use_dma1;
+    uint32_t dma1_src;
+    uint32_t dma1_dst;
+    uint32_t dma1_size;
+
+    uint32_t use_dma2;
+    uint32_t dma2_src;
+    uint32_t dma2_dst;
+    uint32_t dma2_size;
+
+    uint32_t use_sync_dma;
+
+    uint32_t use_redmule;
+    uint32_t redmule_x;
+    uint32_t redmule_w;
+    uint32_t redmule_y;
+
+    // addresses
+    uint64_t A_addr;
+    uint64_t B_addr;
+    uint64_t C_addr;
+
+}GemmSystolicInfo;
+
+void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr);
+// void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K, const uint16_t M, const uint16_t N, const uint64_t bias_addr, cluster_map_t cluster_map, uint16_t tile_width);
+void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void silu(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void sigmoid(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void add(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void dot_product(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+void dot_product_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
+
+void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map);
+void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map);
+void silu_op(const fp16* input, fp16* output);
+void sigmoid_op(const fp16* input, fp16* output);
+void mul_op(const fp16* input1, const fp16* input2, fp16* output);
+void add_op(const fp16* input1, const fp16* input2, fp16* output);
+int32_t min(int32_t a, int32_t b);
+
+void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size);
+
+// Systolicc GEMM related functions
+GemmSystolicInfo gemm_systolic_wise_analysis(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K);
+void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter);
+void gemm_systolic_wise_compute_redmule_action(GemmSystolicInfo * info, uint32_t iter);
+void gemm_systolic_wise(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t K_size, uint32_t M_size, uint32_t N_size, uint32_t elem_size, uint32_t tile_dimension_K, uint32_t tile_dimension_M, uint32_t tile_dimension_N, const uint64_t bias_addr, cluster_map_t cluster_map);
+
+void print64(uint64_t input) {
+    printf(" ##0x%08x%08x## ", (uint32_t)(input >> 32), (uint32_t)input);
+}
+
+int32_t min(int32_t a, int32_t b) {
+    return (a < b) ? a : b;
+}
+
+/**
+ * @brief 
+ * 
+ * @param A 
+ * @param B 
+ * @param C 
+ * @param M_size 
+ * @param N_size 
+ * @param K_size 
+ * @param elem_size 
+ * @param tile_dimension_M 
+ * @param tile_dimension_N 
+ * @param tile_dimension_K 
+ * @return GemmSystolicInfo 
+ */
+GemmSystolicInfo gemm_systolic_wise_analysis(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K){
+    GemmSystolicInfo info;
+    info.A_addr = A;
+    info.B_addr = B;
+    info.C_addr = C;
+    info.matrix_M = M_size;
+    info.matrix_N = N_size;
+    info.matrix_K = K_size;
+    info.tile_dimension_M = tile_dimension_M;
+    info.tile_dimension_N = tile_dimension_N;
+    info.tile_dimension_K = tile_dimension_K;
+    info.elem_size = elem_size;
+    info.tile_size_byte_X = info.tile_dimension_M * info.tile_dimension_N * elem_size;
+    info.tile_size_byte_W = info.tile_dimension_N * info.tile_dimension_K * elem_size;
+    info.tile_size_byte_Y = info.tile_dimension_M * info.tile_dimension_K * elem_size;
+
+    info.X_offset_1 = 0;
+    info.W_offset_1 = 1 * info.tile_size_byte_X;
+    info.X_offset_2 = 2 * info.tile_size_byte_W;
+    info.W_offset_2 = 3 * info.tile_size_byte_X;
+    info.Y_offset   = 4 * info.tile_size_byte_W;
+
+    uint32_t M_tile = (M_size + info.tile_dimension_M - 1)/info.tile_dimension_M;
+    uint32_t N_tile = (N_size + info.tile_dimension_N - 1)/info.tile_dimension_N;
+    uint32_t K_tile = (K_size + info.tile_dimension_K - 1)/info.tile_dimension_K;
+
+    FlexPosition pos = get_pos(flex_get_cluster_id());
+    info.Z_tile_on_row = 0;
+    while((info.Z_tile_on_row * ARCH_NUM_CLUSTER_X + pos.x) < K_tile){
+        info.Z_tile_on_row ++;
+    }
+    info.Z_tile_on_col = 0;
+    while((info.Z_tile_on_col * ARCH_NUM_CLUSTER_Y + pos.y) < M_tile){
+        info.Z_tile_on_col ++;
+    }
+    info.XW_tile_length = N_tile;
+    info.Z_tile_all = info.Z_tile_on_row * info.Z_tile_on_col;
+    info.systolic_delay = pos.x + pos.y;
+    info.total_iter = ((K_tile + ARCH_NUM_CLUSTER_X -1)/ARCH_NUM_CLUSTER_X) * ((M_tile + ARCH_NUM_CLUSTER_Y - 1)/ARCH_NUM_CLUSTER_Y) * (N_tile + 1) + ARCH_NUM_CLUSTER_X + ARCH_NUM_CLUSTER_Y;
+
+    info.dma_runing = 0;
+    info.redmule_runing = 0;
+
+    return info;
+}
+
+/**
+ * @brief 
+ * 
+ * @param info 
+ * @param iter 
+ */
+void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter){
+
+    //Set defualt number
+    info->use_dma1 = 0;
+    info->use_dma2 = 0;
+    info->use_sync_dma = 0;
+
+    //Determine DMA actions
+    if ((iter >= info->systolic_delay) && (iter < (info->Z_tile_all * (info->XW_tile_length + 1) + info->systolic_delay)))
+    {
+        uint32_t eff_iter = iter - info->systolic_delay;
+        uint32_t sub_iter = eff_iter%(info->XW_tile_length + 1);
+        uint32_t st_count = eff_iter/(info->XW_tile_length + 1);
+        uint32_t xw_count = (sub_iter < 1)? st_count * info->XW_tile_length : st_count * info->XW_tile_length + sub_iter - 1;
+        FlexPosition pos = get_pos(flex_get_cluster_id());
+
+        if (sub_iter == 1)
+        {
+            if (st_count != 0)
+            {
+                info->use_sync_dma = 1;
+                info->use_dma1 = 1;
+                // info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+                info->dma1_dst = info->C_addr + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+                info->dma1_src = local(info->Y_offset);
+                info->dma1_size = info->tile_size_byte_Y;
+                info->use_dma2 = 1;
+                info->dma2_dst = local(info->Y_offset);
+                info->dma2_src = zomem(0);
+                info->dma2_size = info->tile_size_byte_Y;
+            }
+        } else {
+            info->use_dma1 = 1;
+            info->use_dma2 = 1;
+            info->dma1_size = info->tile_size_byte_X;
+            info->dma2_size = info->tile_size_byte_W;
+
+            uint32_t local_x = (xw_count%2 == 0)? info->X_offset_1 : info->X_offset_2;
+            uint32_t local_w = (xw_count%2 == 0)? info->W_offset_1 : info->W_offset_2;
+
+            //XW tile transfering
+            if(pos.x == 0){
+                /* clusters at west edge hbm transfer*/
+                info->dma1_dst = local(local_x);
+                // info->dma1_src = hbm_west(pos.y,0) + xw_count * info->tile_size_byte_X;
+                info->dma1_src = info->A_addr + xw_count * info->tile_size_byte_X;
+            } else {
+                /* clusters on-chip transfer*/
+                info->dma1_dst = local(local_x);
+                info->dma1_src = remote_pos(left_pos(pos),local_x);
+            }
+
+            if (pos.y == 0)
+            {
+                /* clusters at south edge hbm transfer*/
+                info->dma2_dst = local(local_w);
+                // info->dma2_src = hbm_south(pos.x,0) + xw_count * info->tile_size_byte_W;
+                info->dma2_src = info->B_addr + xw_count * info->tile_size_byte_W;
+            } else {
+                /* clusters on-chip transfer*/
+                info->dma2_dst = local(local_w);
+                info->dma2_src = remote_pos(bottom_pos(pos),local_w);
+            }
+        }
+    }
+
+    //Final Store
+    if (iter == (info->Z_tile_all * (info->XW_tile_length + 1) + info->systolic_delay + 1))
+    {
+        uint32_t eff_iter = iter - info->systolic_delay;
+        uint32_t st_count = eff_iter/(info->XW_tile_length + 1);
+        FlexPosition pos = get_pos(flex_get_cluster_id());
+
+        info->use_dma1 = 1;
+        // info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+        info->dma1_dst = info->C_addr + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+        info->dma1_src = local(info->Y_offset);
+        info->dma1_size = info->tile_size_byte_Y;
+    }
+}
+
+
+/**
+ * @brief 
+ * 
+ * @param info 
+ * @param iter 
+ */
+void gemm_systolic_wise_compute_redmule_action(GemmSystolicInfo * info, uint32_t iter){
+
+    //Set defualt number
+    info->use_redmule = 0;
+
+    //Determine RedMule actions
+    if ((iter >= (info->systolic_delay + 1)) && (iter < (info->Z_tile_all * (info->XW_tile_length + 1) + info->systolic_delay + 1)))
+    {
+        uint32_t eff_iter = iter - info->systolic_delay - 1;
+        uint32_t sub_iter = eff_iter%(info->XW_tile_length + 1);
+        uint32_t st_count = eff_iter/(info->XW_tile_length + 1);
+        uint32_t xw_count = (sub_iter < 1)? st_count * info->XW_tile_length : st_count * info->XW_tile_length + sub_iter - 1;
+        if (sub_iter != 1)
+        {
+            info->use_redmule = 1;
+            info->redmule_x = (xw_count%2 == 0)? info->X_offset_1 : info->X_offset_2;
+            info->redmule_w = (xw_count%2 == 0)? info->W_offset_1 : info->W_offset_2;
+            info->redmule_y = info->Y_offset;
+        }
+    }
+}
+
+
+/**
+ * @brief 
+ * TODO: cluster map masking
+ * TODO: addr shift and cluster offset
+ * 
+ * @param A 
+ * @param B 
+ * @param C 
+ * @param K_size 
+ * @param M_size 
+ * @param N_size 
+ * @param elem_size 
+ * @param tile_dimension_K 
+ * @param tile_dimension_M 
+ * @param tile_dimension_N 
+ * @param bias_addr 
+ * @param cluster_map 
+ */
+void gemm_systolic_wise(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t K_size, uint32_t M_size, uint32_t N_size, uint32_t elem_size, uint32_t tile_dimension_K, uint32_t tile_dimension_M, uint32_t tile_dimension_N, const uint64_t bias_addr, cluster_map_t cluster_map) {
+
+    flex_global_barrier_xy();
+    uint32_t CID = flex_get_cluster_id();
+    GemmSystolicInfo info = gemm_systolic_wise_analysis(A, B, C, M_size, N_size, K_size, elem_size, tile_dimension_K, tile_dimension_M, tile_dimension_N);
+
+    // uint32_t accumulator;
+    // uint32_t opand_size = tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES;
+    // accumulator = ARCH_CLUSTER_TCDM_SIZE - opand_size;
+
+    if (flex_is_first_core())
+    {
+        //Initialize RedMule Paramters
+        flex_redmule_config(info.tile_dimension_M, info.tile_dimension_N, info.tile_dimension_K);
+        //Pre-Compute RedMule actions for the first iteration
+        gemm_systolic_wise_compute_redmule_action(&info, 0);
+    }
+
+    if (flex_is_dm_core())
+    {
+        //Pre-Compute DMA actions for the first iteration
+        gemm_systolic_wise_compute_dma_access(&info, 0);
+
+        // Bias
+        // FIXME: No entry found for burst (base: 0x57575757, size: 0x29)
+        // if (bias_addr == zomem(0)) {
+        //     flex_dma_async_1d(local(info.redmule_y), zomem(0), tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES);
+        //     flex_dma_async_wait_all();
+        // } else {
+        //     // TODO: the way to load bias may not be correct
+        //     flex_dma_sync_2d(local(info.redmule_y), bias_addr, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_N * DATA_SIZE_BYTES, 0, tile_dimension_M);
+        //     flex_dma_async_wait_all();
+        // }
+    }
+
+    if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_start();
+    flex_global_barrier_xy();
+ 
+    for (int i = 0; i < info.total_iter; ++i)
+    {
+        if (flex_is_first_core())
+        {
+            //Asynchronizly execute redmule actions
+            if (info.use_redmule) flex_redmule_trigger(info.redmule_x, info.redmule_w, info.redmule_y, REDMULE_FP_16);
+            info.redmule_runing = info.use_redmule;
+
+            //Compute for next redmule actions
+            gemm_systolic_wise_compute_redmule_action(&info, i+1);
+
+            //Wait for redmule done
+            if (info.redmule_runing) flex_redmule_wait();
+        }
+
+        if (flex_is_dm_core())
+        {
+            if (info.use_sync_dma)
+            {
+                //Synchronizly execute idma actions
+                if (info.use_dma1) {flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size); flex_dma_async_wait_all();}
+                if (info.use_dma2) {flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size); flex_dma_async_wait_all();}
+                //Compute for next idma actions
+                gemm_systolic_wise_compute_dma_access(&info, i+1);
+            } else {
+                //Asynchronizly execute idma actions
+                if (info.use_dma1) flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size);
+                if (info.use_dma2) flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size);
+                info.dma_runing = info.use_dma1 | info.use_dma2;
+
+                //Compute for next idma actions
+                gemm_systolic_wise_compute_dma_access(&info, i+1);
+
+                //Wait for idma done
+                if (info.dma_runing) flex_dma_async_wait_all();
+            }
+        }
+
+        //Global synchronization
+        flex_global_barrier_xy();
+    }
+    if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_end();
+}
+
+// Helper function for quickselect partitioning
+int partition(uint16_t* arr, uint16_t* indices, int left, int right) {
+    // Choose rightmost element as pivot
+    uint16_t pivot = arr[right];
+    int i = left - 1;
+    
+    for (int j = left; j < right; j++) {
+        // Use fp16 comparison to maintain fp16 ordering
+        if (asm_fp16_compare((const fp16 *)(arr + j), (const fp16 *)&pivot) >= 0) {
+            i++;
+            // Swap values
+            uint16_t temp = arr[i];
+            arr[i] = arr[j];
+            arr[j] = temp;
+            
+            // Swap indices if tracking
+            if (indices != NULL) {
+                temp = indices[i];
+                indices[i] = indices[j];
+                indices[j] = temp;
+            }
+        }
+    }
+    
+    // Swap pivot to its final position
+    uint16_t temp = arr[i + 1];
+    arr[i + 1] = arr[right];
+    arr[right] = temp;
+    
+    // Swap indices if tracking
+    if (indices != NULL) {
+        temp = indices[i + 1];
+        indices[i + 1] = indices[right];
+        indices[right] = temp;
+    }
+    
+    return i + 1;
+}
+
+// Helper function to implement quickselect for top-k
+void quickselect(uint16_t* arr, uint16_t* indices, int left, int right, int k) {
+    if (left < right) {
+        int pivot_idx = partition(arr, indices, left, right);
+        
+        // If pivot is at k, we're done
+        if (pivot_idx == k) {
+            return;
+        }
+        // If pivot index is greater than k, search left subarray
+        else if (pivot_idx > k) {
+            quickselect(arr, indices, left, pivot_idx - 1, k);
+        }
+        // If pivot index is less than k, search right subarray
+        else {
+            quickselect(arr, indices, pivot_idx + 1, right, k);
+        }
+    }
+}
+
+/**
+ * @brief Select top k values from each row of the input matrix and write the result to the output matrix along with the corresponding indices.
+ * 
+ * @param in_addr in HBM
+ * @param out_value_addr can be in TCDM or HBM
+ * @param out_index_addr can be in TCDM or HBM
+ * @param k top k values to select (less than 64)
+ * @param n_routed_expert number of candidate values in each row of the input matrix
+ * @param n_token number of rows in the input matrix
+ * @param cluster_map
+ */
+void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t n_routed_expert, const uint16_t n_token, cluster_map_t cluster_map) {
+    if (0 == k || 0 == n_routed_expert || 0 == n_token || k > 16) {
+        return;
+    }
+    // flex_global_barrier_xy();
+    
+    uint32_t cluster_id = flex_get_cluster_id();
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        uint32_t i_row_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER;
+        uint32_t transfer_rows;
+
+        uint32_t local_out_value, local_out_indices, local_in;
+        local_out_value = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
+        local_out_indices = local_out_value - ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
+        local_in = local_out_indices - ARCH_NUM_CORE_PER_CLUSTER * n_routed_expert * DATA_SIZE_BYTES;
+        local_in += core_id * n_routed_expert * DATA_SIZE_BYTES;
+        local_out_indices += core_id * k * DATA_SIZE_BYTES;
+        local_out_value += core_id * k * DATA_SIZE_BYTES;
+
+        while (i_row_cluster < n_token) {
+            // Allocate an array for indices
+            uint16_t indices[256]; // Should be large enough for n_routed_expert
+            // one dma transfer per cluster
+            transfer_rows = min(ARCH_NUM_CORE_PER_CLUSTER, n_token - i_row_cluster);
+
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_in), 
+                                 (in_addr + i_row_cluster * n_routed_expert * DATA_SIZE_BYTES), 
+                                 transfer_rows * n_routed_expert * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            flex_intra_cluster_sync();
+
+            if ((i_row_cluster + core_id) < n_token) {
+                // Initialize index array
+                for (int i = 0; i < n_routed_expert; i++) {
+                    // printf("");
+                    indices[i] = i;
+                }
+                
+                // Quickselect to partition the array so that the k largest elements are at the beginning
+                quickselect((uint16_t*)local(local_in), indices, 0, n_routed_expert - 1, k - 1);
+                
+                // // Sort the top k elements (if needed for fully sorted output)
+            //     // Simple insertion sort for the small k values
+            //     for (int i = 1; i < k; i++) {
+            //         uint16_t key_val = ((uint16_t *)local(local_in))[i];
+            //         uint16_t key_idx = indices[i];
+            //         int j = i - 1;
+                    
+            //         while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
+            //             ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
+            //             indices[j + 1] = indices[j];
+            //             j--;
+            //         }
+                    
+            //         ((uint16_t *)local(local_in))[j + 1] = key_val;
+            //         indices[j + 1] = key_idx;
+            //     }
+                // Copy to output buffers
+                for (int i = 0; i < k; i++) {
+                    // printf("");
+                    ((uint16_t *)local(local_out_value))[i] = ((uint16_t *)local(local_in))[i];
+                    ((uint16_t *)local(local_out_indices))[i] = indices[i];
+                }
+            }
+            
+            flex_intra_cluster_sync();
+            // transfer the top k values and indices to HBM
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d((out_value_addr + i_row_cluster * k * DATA_SIZE_BYTES), 
+                local(local_out_value), transfer_rows * k * DATA_SIZE_BYTES);
+                flex_dma_async_1d((out_index_addr + i_row_cluster * k * DATA_SIZE_BYTES), 
+                local(local_out_indices), transfer_rows * k * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            
+            i_row_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated;
+        }
+    }
+    // flex_global_barrier_xy();
+}
+
+/**
+ * @brief normalize the input matrix along rows. Consider dim here to be small, just use the simplist way to implement it.
+ * 
+ * @param in_addr can be in TCDM or HBM
+ * @param out_addr can be in TCDM or HBM
+ * @param dim colomn dimension of the input matrix
+ * @param n_token row dimension of the input matrix
+ * @param cluster_map
+ */
+void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    if (0 == dim || 0 == n_token) {
+        return;
+    }
+    // flex_global_barrier_xy();
+    
+    uint32_t cluster_id = flex_get_cluster_id();
+    // uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    uint32_t core_id = flex_get_core_id();
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        uint64_t i_row_cluster = local_cluster_id;
+        uint16_t transfer_rows;
+
+        uint32_t local_out, local_sum;
+        local_out = ARCH_CLUSTER_TCDM_SIZE - dim * DATA_SIZE_BYTES;
+        local_sum = local_out - DATA_SIZE_BYTES;
+
+        while (i_row_cluster < n_token) {
+            // Transfer one row per cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_out), (in_addr + i_row_cluster * dim * DATA_SIZE_BYTES), dim * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            flex_intra_cluster_sync();
+            
+            if (0 == core_id) {
+                float sum = 0;
+                for (int i = 0; i < dim; i++) {
+                    // printf("[NORMALIZE] 0x%x\n", ((fp16 *)local(local_out))[i]);
+                    sum += fp16_to_float(((fp16 *)local(local_out))[i]);
+                }
+                ((fp16 *)local(local_sum))[0] = float_to_fp16(sum);
+            }
+            flex_intra_cluster_sync();
+
+            #ifdef SPATZ_ENABLE
+            if (0 == core_id) {
+                uint16_t * local_in_ptr = (uint16_t *)local(local_out);
+                uint16_t * local_out_ptr = (uint16_t *)local(local_out);
+                
+                asm volatile("vsetvli zero, %0, e16, m8, ta, ma" : : "r"(dim));
+                asm volatile("fmv.h.x ft0, %0" : : "r"(((fp16 *)local(local_sum))[0]));
+                // compute element-wise operation with spatz core
+                uint16_t vl;
+                uint16_t i_element = 0;
+                while (dim > i_element) {
+                    asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, dim - i_element)));
+                    asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                    asm volatile("vfdiv.vf v1, v0, ft0");
+                    asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+
+                    local_in_ptr += vl;
+                    local_out_ptr += vl;
+                    i_element += vl;
+                }
+            }
+            #else
+            uint32_t n_element_per_core = (dim - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
+            for (int i = 0; i < n_element_per_core; i++) {
+                if (i + core_id * n_element_per_core < dim) {
+                    fp16 a = ((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                    fp16 *b_ptr = (fp16 *)local(local_sum);
+                    fp16 *c_ptr = &((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                    // if (0 == core_id) {
+                    //     printf("[NORMALIZE] a = 0x%x sum = 0x%x\n", a, *b_ptr);
+                    // }
+                    asm_fp16_div(&a, b_ptr, c_ptr);
+                }
+            }
+            #endif
+            flex_intra_cluster_sync();
+            // transfer the top k values and indices to HBM
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d((out_addr + i_row_cluster * dim * DATA_SIZE_BYTES), local(local_out), dim * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            i_row_cluster += n_cluster_activated;
+        }
+    }
+    // flex_global_barrier_xy();
+}
+
+/**
+ * @brief apply element-wise operation on ONE INPUT matrix. Each core processes ELEMENT_WISE_TILE_WIDTH elements at a time.
+ * 
+ * @param in_addr can be in TCDM or HBM
+ * @param out_addr can be in TCDM or HBM
+ * @param dim 
+ * @param n_token 
+ * @param op element_wise_op_t function pointer
+ */
+void apply_element_wise_1_in(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_1_in_t op, cluster_map_t cluster_map) {
+    if (0 == dim || 0 == n_token || NULL == op) {
+        return;
+    }
+    // flex_global_barrier_xy();
+    uint32_t cluster_id = flex_get_cluster_id();
+    #ifdef SPATZ_ENABLE
+    uint32_t core_id = flex_get_core_id();  // reverse the core id to make the dm core the first core in the cluster
+    #else
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    #endif
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        uint32_t local_in, local_out, local_const_0, local_const_1;
+        
+        uint32_t n_element_per_cluster;
+        #ifdef SPATZ_ENABLE
+            // equally divide the elements among activated clusters
+            n_element_per_cluster = (dim - 1) / n_cluster_activated + 1;
+            // make sure each cluster has enough elements to process
+            if (n_element_per_cluster < SPATZ_VL_MIN) {
+                n_element_per_cluster = SPATZ_VL_MIN;
+            }
+            // index of the first element to be processed by current cluster
+            uint64_t i_element_cluster = local_cluster_id * n_element_per_cluster;
+            
+            if (i_element_cluster >= dim * n_token) {
+                return;
+            }
+            // load data: one dma transfer per cluster
+            n_element_per_cluster = min(n_element_per_cluster, dim * n_token - i_element_cluster);
+            local_in = ARCH_CLUSTER_TCDM_SIZE - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out = local_in - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_const_0 = local_out - SPATZ_VL * DATA_SIZE_BYTES;
+            local_const_1 = local_const_0 - SPATZ_VL * DATA_SIZE_BYTES;
+            // load input values
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            
+            // make sure data is ready
+            flex_intra_cluster_sync();
+            // prepare for constant values
+            // NOTE: require spatz attached to the first core in the cluster
+            if (0 == core_id) {
+                uint16_t * local_in_ptr = (uint16_t *)local(local_in);
+                uint16_t * local_const_1_ptr = (uint16_t *)local(local_const_1);
+                uint16_t * local_out_ptr = (uint16_t *)local(local_out);
+                for (int i = 0; i < SPATZ_VL; i++) {
+                    local_const_1_ptr[i] = 0x3c00;
+                }
+                
+                // compute element-wise operation with spatz core
+                uint16_t vl;
+                uint16_t i_element = 0;
+                // fp16 const_1 = 0x3c00; // 1.0
+                // asm volatile("fmv.h.x ft0, %0" : : "r"(const_1));
+                // asm volatile("vfmv.v.f v2, ft0");
+                asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(SPATZ_VL));
+                asm volatile("vle16.v v2, (%0)" : : "r"(local_const_1_ptr));
+                while (n_element_per_cluster > i_element) {
+                    asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, n_element_per_cluster - i_element)));
+                    asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+
+                    if (op == silu_op) {
+                        // silu: x * sigmoid(x)
+                        asm volatile("vfneg.v v3, v0");
+                        asm_rvv_exp(3,4);
+                        asm volatile("vfadd.vv v3, v2, v4");
+                        asm volatile("vfdiv.vv v8, v2, v3");
+                        asm volatile("vfmul.vv v8, v0, v8");
+                    } else if (op == sigmoid_op) {
+                        // sigmoid: 1 / (1 + exp(-x))
+                        asm volatile("vfneg.v v3, v0");
+                        asm_rvv_exp(3,4);
+                        asm volatile("vfadd.vv v3, v2, v4");
+                        asm volatile("vfdiv.vv v8, v2, v3");
+                    } else {
+                        // Unsupported operation
+                    }
+                    asm volatile("vse16.v v8, (%0)" : : "r"(local_out_ptr));
+
+                    local_in_ptr += vl;
+                    local_out_ptr += vl;
+                    i_element += vl;
+                }
+            }
+            
+            // make sure data is ready
+            flex_intra_cluster_sync();
+            // store data: one dma transfer per cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            #else
+            local_in = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+            local_out = local_in - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+
+            // index of the first element to be processed by current cluster
+            uint64_t i_element_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+
+            while (i_element_cluster < n_token * dim) {
+                // load data: one dma transfer per cluster
+                uint32_t max_cluster_capacity = ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+                uint32_t remaining_elements = dim * n_token - i_element_cluster;
+                n_element_per_cluster = (remaining_elements < max_cluster_capacity) ? 
+                                        remaining_elements : max_cluster_capacity;
+                if (flex_is_dm_core()) {
+                    flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                    flex_dma_async_wait_all();
+                }
+
+                // compute element-wise operation
+                int idx = core_id * ELEMENT_WISE_TILE_WIDTH;
+                int n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - idx);
+                flex_intra_cluster_sync();
+                for (int i = 0; i < n_element_per_core; i++, idx++) {
+                    op((const fp16*)local(local_in + idx * DATA_SIZE_BYTES), 
+                            (fp16*)local(local_out + idx * DATA_SIZE_BYTES));
+                }
+                flex_intra_cluster_sync();
+
+                // store data: one dma transfer per cluster
+                if (flex_is_dm_core()) {
+                    flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                    flex_dma_async_wait_all();
+                }
+                i_element_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated * ELEMENT_WISE_TILE_WIDTH;
+            }
+        #endif
+    }
+    
+    // flex_global_barrier_xy();
+}
+
+/**
+ * @brief apply element-wise operation on TWO INPUT matrix. Each core processes ELEMENT_WISE_TILE_WIDTH elements at a time.
+ * 
+ * @param in_addr1
+ * @param in_addr2
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param op element_wise_op_t function pointer
+ * @param cluster_map
+ */
+void apply_element_wise_2_in(const uint64_t in_addr1, const uint64_t in_addr2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_t op, cluster_map_t cluster_map) {
+    if (0 == dim || 0 == n_token || NULL == op) {
+        return;
+    }
+    // flex_global_barrier_xy();
+    uint32_t cluster_id = flex_get_cluster_id();
+    #ifdef SPATZ_ENABLE
+    uint32_t core_id = flex_get_core_id();  // reverse the core id to make the dm core the first core in the cluster
+    #else
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    #endif
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        uint32_t local_in1, local_in2, local_out;
+        
+        uint32_t n_element_per_cluster;
+        #ifdef SPATZ_ENABLE
+            n_element_per_cluster = (dim - 1) / n_cluster_activated + 1;
+            // make sure each cluster has enough elements to process
+            if (n_element_per_cluster < SPATZ_VL_MIN) {
+                n_element_per_cluster = SPATZ_VL_MIN;
+            }
+            // index of the first element to be processed by current cluster
+            uint64_t i_element_cluster = local_cluster_id * n_element_per_cluster;
+            
+            if (i_element_cluster >= dim * n_token) {
+                return;
+            }
+
+            // load data: one dma transfer per cluster
+            n_element_per_cluster = min(n_element_per_cluster, dim * n_token - i_element_cluster);
+            local_in1 = ARCH_CLUSTER_TCDM_SIZE - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_in2 = local_in1 - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out = local_in2 - n_element_per_cluster * DATA_SIZE_BYTES;
+            // load input values
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_in1), in_addr1 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_1d(local(local_in2), in_addr2 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+
+            // make sure data is ready
+            flex_intra_cluster_sync();
+
+            // NOTE: require spatz attached to the first core in the cluster
+            if (0 == core_id) {
+                uint16_t * local_in1_ptr = (uint16_t *)local(local_in1);
+                uint16_t * local_in2_ptr = (uint16_t *)local(local_in2);
+                uint16_t * local_out_ptr = (uint16_t *)local(local_out);
+                
+                // compute element-wise operation with spatz core
+                uint16_t vl;
+                uint16_t i_element = 0;
+                while (n_element_per_cluster > i_element) {
+                    asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, n_element_per_cluster - i_element)));
+                    asm volatile("vle16.v v0, (%0)" : : "r"(local_in1_ptr));
+                    asm volatile("vle16.v v1, (%0)" : : "r"(local_in2_ptr));
+                    
+                    if (op == add_op) {
+                        asm volatile("vfadd.vv v8, v0, v1");
+                    } else if (op == mul_op) {
+                        asm volatile("vfmul.vv v8, v0, v1");
+                    } else {
+                        // Unsupported operation
+                    }
+                    asm volatile("vse16.v v8, (%0)" : : "r"(local_out_ptr));
+
+                    local_in1_ptr += vl;
+                    local_in2_ptr += vl;
+                    local_out_ptr += vl;
+                    i_element += vl;
+                }
+            }
+            
+            // make sure data is ready
+            flex_intra_cluster_sync();
+            // store data: one dma transfer per cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            #else
+            local_in1 = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+            local_in2 = local_in1 - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+            local_out = local_in2 - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+            // index of the first element to be processed by current cluster
+            uint32_t i_element_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+    
+            while (i_element_cluster < n_token * dim) {
+                // load data: one dma transfer per cluster
+                n_element_per_cluster = min(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+                if (flex_is_dm_core()) {
+                    flex_dma_async_1d(local(local_in1), in_addr1 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                    flex_dma_async_1d(local(local_in2), in_addr2 + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                    flex_dma_async_wait_all();
+                }
+                
+                // compute element-wise operation
+                uint32_t n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+                flex_intra_cluster_sync();
+                for (int i = 0; i < n_element_per_core; i++) {
+                    int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
+                    op((const fp16*)local(local_in1 + idx * DATA_SIZE_BYTES), (const fp16*)local(local_in2 + idx * DATA_SIZE_BYTES), (fp16*)local(local_out + idx * DATA_SIZE_BYTES));
+                }
+                flex_intra_cluster_sync();
+    
+                // store data: one dma transfer per cluster
+                if (flex_is_dm_core()) {
+                    flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                    flex_dma_async_wait_all();
+                }
+                i_element_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated * ELEMENT_WISE_TILE_WIDTH;
+            }
+        #endif
+    }
+    // flex_global_barrier_xy();
+}
+
+/**
+ * @brief apply element-wise operation on TWO INPUT matrix. Each core processes ELEMENT_WISE_TILE_WIDTH elements at a time.
+ * 
+ * @param in_addr
+ * @param in_const constant value to be multiplied
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param op element_wise_op_t function pointer
+ * @param cluster_map
+ */
+void apply_element_wise_2_in_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, element_wise_op_2_in_const_t op, cluster_map_t cluster_map) {
+    if (0 == dim || 0 == n_token || NULL == op) {
+        return;
+    }
+    // flex_global_barrier_xy();
+    uint32_t cluster_id = flex_get_cluster_id();
+    #ifdef SPATZ_ENABLE
+    uint32_t core_id = flex_get_core_id();  // reverse the core id to make the dm core the first core in the cluster
+    #else
+    uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+    #endif
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+    if ((cluster_map & (0x01 << cluster_id)) != 0) {
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (cluster_id == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
+        uint32_t local_in, local_out;
+        
+        uint32_t n_element_per_cluster;
+        #ifdef SPATZ_ENABLE
+            n_element_per_cluster = (dim - 1) / n_cluster_activated + 1;
+            // make sure each cluster has enough elements to process
+            if (n_element_per_cluster < SPATZ_VL_MIN) {
+                n_element_per_cluster = SPATZ_VL_MIN;
+            }
+            // index of the first element to be processed by current cluster
+            uint64_t i_element_cluster = local_cluster_id * n_element_per_cluster;
+            
+            if (i_element_cluster >= dim * n_token) {
+                return;
+            }
+
+            // load data: one dma transfer per cluster
+            n_element_per_cluster = min(n_element_per_cluster, dim * n_token - i_element_cluster);
+            local_in = ARCH_CLUSTER_TCDM_SIZE - n_element_per_cluster * DATA_SIZE_BYTES;
+            local_out = local_in - n_element_per_cluster * DATA_SIZE_BYTES;
+            // load input value
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            
+            // make sure data is ready
+            flex_intra_cluster_sync();
+            
+            // NOTE: require spatz attached to the first core in the cluster
+            if (0 == core_id) {
+                uint16_t * local_in_ptr = (uint16_t *)local(local_in);
+                uint16_t * local_out_ptr = (uint16_t *)local(local_out);
+                // compute element-wise operation with spatz core
+                uint16_t vl;
+                uint16_t i_element = 0;
+                // Load FP16 value into a floating-point register
+                asm volatile("fmv.h.x ft0, %0" : : "r"(in_const));
+                while (n_element_per_cluster > i_element) {
+                    // printf("");
+                    asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, n_element_per_cluster - i_element)));
+                    asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                    
+                    if (op == mul_op) {
+                        // Perform vector-scalar multiplication
+                        asm volatile("vfmul.vf v8, v0, ft0");
+                    } else {
+                        // Unsupported operation
+                    }
+                    asm volatile("vse16.v v8, (%0)" : : "r"(local_out_ptr));
+
+                    local_in_ptr += vl;
+                    local_out_ptr += vl;
+                    i_element += vl;
+                }
+            }
+            
+            // make sure data is ready
+            flex_intra_cluster_sync();
+            // store data: one dma transfer per cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
+            }
+            #else
+            if (0 == dim || 0 == n_token || NULL == op) {
+                return;
+            }
+            local_in = ARCH_CLUSTER_TCDM_SIZE - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+            local_out = local_in - ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH * DATA_SIZE_BYTES;
+        
+            uint32_t cluster_id = flex_get_cluster_id();
+            uint32_t core_id = ARCH_NUM_CORE_PER_CLUSTER - flex_get_core_id() - 1;  // reverse the core id to make the dm core the first core in the cluster
+            // cluster_id among activated clusters
+            uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+            uint32_t n_cluster_activated = 0;
+            if ((cluster_map & (0x01 << cluster_id)) != 0) {
+                for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+                    if ((cluster_map & (0x01 << i)) != 0) {
+                        if (cluster_id == i) {
+                            local_cluster_id = n_cluster_activated;
+                        }
+                        n_cluster_activated += 1;
+                    }
+                }
+                // index of the first element to be processed by current cluster
+                uint32_t i_element_cluster = local_cluster_id * ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH;
+                uint32_t n_element_per_cluster, n_element_per_core;
+        
+                while (i_element_cluster < n_token * dim) {
+                    // load data: one dma transfer per cluster
+                    n_element_per_cluster = min(ARCH_NUM_CORE_PER_CLUSTER * ELEMENT_WISE_TILE_WIDTH, dim * n_token - i_element_cluster);
+                    if (flex_is_dm_core()) {
+                        flex_dma_async_1d(local(local_in), in_addr + i_element_cluster * DATA_SIZE_BYTES, n_element_per_cluster * DATA_SIZE_BYTES);
+                        flex_dma_async_wait_all();
+                    }
+                    
+                    // compute element-wise operation
+                    n_element_per_core = min(ELEMENT_WISE_TILE_WIDTH, n_element_per_cluster - core_id * ELEMENT_WISE_TILE_WIDTH);
+                    flex_intra_cluster_sync();
+                    for (int i = 0; i < n_element_per_core; i++) {
+                        int idx = i + core_id * ELEMENT_WISE_TILE_WIDTH;
+                        op((const fp16*)local(local_in + idx * DATA_SIZE_BYTES), (fp16*) &in_const, (fp16*)local(local_out + idx * DATA_SIZE_BYTES));
+                    }
+                    flex_intra_cluster_sync();
+        
+                    // store data: one dma transfer per cluster
+                    if (flex_is_dm_core()) {
+                        flex_dma_async_1d(out_addr + i_element_cluster * DATA_SIZE_BYTES, local(local_out), n_element_per_cluster * DATA_SIZE_BYTES);
+                        flex_dma_async_wait_all();
+                    }
+                    i_element_cluster += ARCH_NUM_CORE_PER_CLUSTER * n_cluster_activated * ELEMENT_WISE_TILE_WIDTH;
+                }
+            }
+        #endif
+    }
+    // flex_global_barrier_xy();
+}
+
+/**
+ * @brief element-wise silu activation function
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void silu(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_1_in(in_addr, out_addr, dim, n_token, silu_op, cluster_map); 
+}
+
+/**
+ * @brief element-wise sigmoid function
+ * 
+ * @param in_addr 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void sigmoid(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_1_in(in_addr, out_addr, dim, n_token, sigmoid_op, cluster_map); 
+}
+
+/**
+ * @brief element-wise dot-product function
+ * 
+ * @param in_addr_1 
+ * @param in_addr_2 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void dot_product(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_2_in(in_addr_1, in_addr_2, out_addr, dim, n_token, mul_op, cluster_map);
+}
+
+/**
+ * @brief dot-product with constant function
+ * 
+ * @param in_addr 
+ * @param in_const fp16 constant value to be multiplied
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void dot_product_const(const uint64_t in_addr, const fp16 in_const, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_2_in_const(in_addr, in_const, out_addr, dim, n_token, mul_op, cluster_map);
+}
+
+/**
+ * @brief element-wise add function
+ * 
+ * @param in_addr_1 
+ * @param in_addr_2 
+ * @param out_addr 
+ * @param dim 
+ * @param n_token 
+ * @param cluster_map
+ */
+void add(const uint64_t in_addr_1, const uint64_t in_addr_2, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map) {
+    apply_element_wise_2_in(in_addr_1, in_addr_2, out_addr, dim, n_token, add_op, cluster_map);
+}
+
+void silu_op(const fp16* input, fp16* output) {
+    asm_fp16_sigmoid(input, output);
+    float fa = fp16_to_float(*output);
+    float fb = fp16_to_float(*input);
+    *output = float_to_fp16(fa * fb);
+}
+
+void sigmoid_op(const fp16* input, fp16* output) {
+    asm_fp16_sigmoid(input, output);
+}
+
+void add_op(const fp16* input1, const fp16* input2, fp16* output) {
+    float fa = fp16_to_float(*input1);
+    float fb = fp16_to_float(*input2);
+    *output = float_to_fp16(fa + fb);
+}
+
+void mul_op(const fp16* input1, const fp16* input2, fp16* output) {
+    float fa = fp16_to_float(*input1);
+    float fb = fp16_to_float(*input2);
+    *output = float_to_fp16(fa * fb);
+}
+
+/**
+ * @brief 
+ * 
+ * @param dst_addr OFFSET in the TCDM of each cluster to store the broadcasted data
+ * @param src_addr Source address of the data to be broadcasted
+ * @param size 
+ */
+void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size) {
+    flex_global_barrier_xy();//Global barrier
+    FlexPosition pos = get_pos(flex_get_cluster_id());
+    
+    //do row-wise broadcast from cluster 0
+    if (flex_is_dm_core() && flex_get_cluster_id() == 0)
+    {
+        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        flex_dma_async_wait_all();
+    }
+
+    flex_global_barrier_xy();//Global barrier
+
+    // Do column-wise broadcast to all clusters
+    for (int cid = 0; cid < ARCH_NUM_CLUSTER_X; ++cid)
+    {
+        if (flex_is_dm_core() && flex_get_cluster_id() == cid)
+        {   
+            // Broadcast the data in the local TCDM to the entire column
+            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+        }
+        flex_global_barrier_xy();
+    }
+    flex_global_barrier_xy();
+}
+
+/**
+ * @brief 
+ * 
+ * @param in_token_addr 
+ * @param n_token 
+ * @param dim 
+ * @param inter_dim 
+ * @param n_routed_experts 
+ * @param n_shared_experts 
+ * @param n_activated_experts 
+ * @param gate_weights_addr 
+ * @param expert_w1_weights_addr 
+ * @param expert_w1_bias_addr 
+ * @param expert_w2_weights_addr 
+ * @param expert_w2_bias_addr 
+ * @param expert_w3_weights_addr 
+ * @param expert_w3_bias_addr 
+ * @param actual_out_addr 
+ */
+void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr)  {
+    cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
+    cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
+    cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
+    cluster_all = 0xFFFF;
+
+    // Temporary write-back locations
+    uint64_t top_k_weights_addr, top_k_indices_addr;
+    uint64_t temp_token_0, temp_token_1;
+    top_k_weights_addr = actual_out_addr + 2 * (n_token * dim * DATA_SIZE_BYTES);
+    top_k_indices_addr = top_k_weights_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+
+    // stores intermediate results of all experts
+    temp_token_0 = top_k_indices_addr + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    temp_token_1 = temp_token_0 + n_token * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    uint32_t top_k_weights_tcdm, top_k_indices_tcdm;
+    uint64_t temp_token_0_tcdm, temp_token_1_tcdm;
+    top_k_weights_tcdm = 0;
+    top_k_indices_tcdm = top_k_weights_tcdm + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    temp_token_0_tcdm = top_k_indices_tcdm + n_token * n_activated_experts * DATA_SIZE_BYTES;
+    temp_token_1_tcdm = temp_token_0_tcdm + n_token * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+
+    // if (0 == flex_get_cluster_id() && flex_is_first_core()) {
+    //     printf("top_k_weights_addr: %08x%08x\n", (uint32_t)(top_k_weights_addr >> 32), (uint32_t)(top_k_weights_addr & 0xFFFFFFFF));
+    //     printf("top_k_indices_addr: %08x%08x\n", (uint32_t)(top_k_indices_addr >> 32), (uint32_t)(top_k_indices_addr & 0xFFFFFFFF));
+    //     printf("temp_token_0: %08x%08x\n", (uint32_t)(temp_token_0 >> 32), (uint32_t)(temp_token_0 & 0xFFFFFFFF));
+    //     printf("temp_token_1: %08x%08x\n", (uint32_t)(temp_token_1 >> 32), (uint32_t)(temp_token_1 & 0xFFFFFFFF));
+    // }
+    // flex_global_barrier_xy();
+
+
+}
+
+#endif
