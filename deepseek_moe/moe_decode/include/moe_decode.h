@@ -1076,7 +1076,8 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
     //do row-wise broadcast from cluster 0
     if (flex_is_dm_core() && flex_get_cluster_id() == 0)
     {
-        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        // flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+        flex_dma_async_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size, 0, 0);
         flex_dma_async_wait_all();
     }
 
@@ -1088,7 +1089,8 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
         if (flex_is_dm_core() && flex_get_cluster_id() == cid)
         {   
             // Broadcast the data in the local TCDM to the entire column
-            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+            // flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+            flex_dma_async_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size, 0, 0);
         }
         flex_global_barrier_xy();
     }

@@ -338,85 +338,123 @@ void gemm_systolic_wise_compute_redmule_action(GemmSystolicInfo * info, uint32_t
  * @param cluster_map 
  */
 void gemm_systolic_wise(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t K_size, uint32_t M_size, uint32_t N_size, uint32_t elem_size, uint32_t tile_dimension_K, uint32_t tile_dimension_M, uint32_t tile_dimension_N, const uint64_t bias_addr, cluster_map_t cluster_map) {
+    if (0 == M_size || 0 == N_size || 0 == K_size) {
+        return;
+    }
 
     flex_global_barrier_xy();
     uint32_t CID = flex_get_cluster_id();
     GemmSystolicInfo info = gemm_systolic_wise_analysis(A, B, C, M_size, N_size, K_size, elem_size, tile_dimension_K, tile_dimension_M, tile_dimension_N);
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
 
-    // uint32_t accumulator;
-    // uint32_t opand_size = tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES;
-    // accumulator = ARCH_CLUSTER_TCDM_SIZE - opand_size;
+    if((cluster_map & (0x01 << CID)) != 0){
+        // Cluster map masking
+        for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
+            if ((cluster_map & (0x01 << i)) != 0) {
+                if (CID == i) {
+                    local_cluster_id = n_cluster_activated;
+                }
+                n_cluster_activated += 1;
+            }
+        }
 
-    if (flex_is_first_core())
-    {
-        //Initialize RedMule Paramters
-        flex_redmule_config(info.tile_dimension_M, info.tile_dimension_N, info.tile_dimension_K);
-        //Pre-Compute RedMule actions for the first iteration
-        gemm_systolic_wise_compute_redmule_action(&info, 0);
-    }
-
-    if (flex_is_dm_core())
-    {
-        //Pre-Compute DMA actions for the first iteration
-        gemm_systolic_wise_compute_dma_access(&info, 0);
-
-        // Bias
-        // FIXME: No entry found for burst (base: 0x57575757, size: 0x29)
-        // if (bias_addr == zomem(0)) {
-        //     flex_dma_async_1d(local(info.redmule_y), zomem(0), tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES);
-        //     flex_dma_async_wait_all();
+        // TODO: 
+        // Define regular access pattern for HBM nodes
+        // uint64_t cluster_offset;
+        // uint32_t cluster_id_x = CID % ARCH_NUM_CLUSTER_X;
+        // uint32_t cluster_id_y = CID / ARCH_NUM_CLUSTER_X;
+        // uint32_t tile_offset_per_node;
+        // uint16_t addr_shift;
+        // if (tile_dimension_N == TILE_WIDTH_GATE && bias_addr == zomem(0)) {
+        //     addr_shift = 3;
+        // } else if (tile_dimension_N == TILE_WIDTH_EXPERT_0) {
+        //     addr_shift = 2;
+        // } else if (tile_dimension_N == TILE_WIDTH_EXPERT_1) {
+        //     addr_shift = 3;
         // } else {
-        //     // TODO: the way to load bias may not be correct
-        //     flex_dma_sync_2d(local(info.redmule_y), bias_addr, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_N * DATA_SIZE_BYTES, 0, tile_dimension_M);
-        //     flex_dma_async_wait_all();
+        //     addr_shift = 0;
         // }
-    }
+        // if (1 == ((cluster_id_x % 2) ^ (cluster_id_y % 2))) {
+        //     // cluster_id_x, cluster_id_y has different parity: access south HBM nodes
+        //     cluster_offset = (2 * ARCH_NUM_CLUSTER_Y + ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE + (cluster_id % ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE;
+        // } else {
+        //     // cluster_id_x, cluster_id_y has the same parity: access west HBM nodes
+        //     cluster_offset = (cluster_id / ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE;
+        // }
 
-    if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_start();
-    flex_global_barrier_xy();
- 
-    for (int i = 0; i < info.total_iter; ++i)
-    {
         if (flex_is_first_core())
         {
-            //Asynchronizly execute redmule actions
-            if (info.use_redmule) flex_redmule_trigger(info.redmule_x, info.redmule_w, info.redmule_y, REDMULE_FP_16);
-            info.redmule_runing = info.use_redmule;
-
-            //Compute for next redmule actions
-            gemm_systolic_wise_compute_redmule_action(&info, i+1);
-
-            //Wait for redmule done
-            if (info.redmule_runing) flex_redmule_wait();
+            //Initialize RedMule Paramters
+            flex_redmule_config(info.tile_dimension_M, info.tile_dimension_N, info.tile_dimension_K);
+            //Pre-Compute RedMule actions for the first iteration
+            gemm_systolic_wise_compute_redmule_action(&info, 0);
         }
 
         if (flex_is_dm_core())
         {
-            if (info.use_sync_dma)
-            {
-                //Synchronizly execute idma actions
-                if (info.use_dma1) {flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size); flex_dma_async_wait_all();}
-                if (info.use_dma2) {flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size); flex_dma_async_wait_all();}
-                //Compute for next idma actions
-                gemm_systolic_wise_compute_dma_access(&info, i+1);
+            //Pre-Compute DMA actions for the first iteration
+            gemm_systolic_wise_compute_dma_access(&info, 0);
+
+            // Bias
+            // FIXME: No entry found for burst (base: 0x57575757, size: 0x29)
+            if (bias_addr == zomem(0)) {
+                flex_dma_async_1d(local(info.redmule_y), zomem(0), tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES);
+                flex_dma_async_wait_all();
             } else {
-                //Asynchronizly execute idma actions
-                if (info.use_dma1) flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size);
-                if (info.use_dma2) flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size);
-                info.dma_runing = info.use_dma1 | info.use_dma2;
-
-                //Compute for next idma actions
-                gemm_systolic_wise_compute_dma_access(&info, i+1);
-
-                //Wait for idma done
-                if (info.dma_runing) flex_dma_async_wait_all();
+                // TODO: the way to load bias may not be correct
+                flex_dma_sync_2d(local(info.redmule_y), bias_addr, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_N * DATA_SIZE_BYTES, 0, tile_dimension_M);
+                flex_dma_async_wait_all();
             }
         }
 
-        //Global synchronization
+        if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_start();
         flex_global_barrier_xy();
-    }
+    
+        for (int i = 0; i < info.total_iter; ++i)
+        {
+            if (flex_is_first_core())
+            {
+                //Asynchronizly execute redmule actions
+                if (info.use_redmule) flex_redmule_trigger(info.redmule_x, info.redmule_w, info.redmule_y, REDMULE_FP_16);
+                info.redmule_runing = info.use_redmule;
+
+                //Compute for next redmule actions
+                gemm_systolic_wise_compute_redmule_action(&info, i+1);
+
+                //Wait for redmule done
+                if (info.redmule_runing) flex_redmule_wait();
+            }
+
+            if (flex_is_dm_core())
+            {
+                if (info.use_sync_dma)
+                {
+                    //Synchronizly execute idma actions
+                    if (info.use_dma1) {flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size); flex_dma_async_wait_all();}
+                    if (info.use_dma2) {flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size); flex_dma_async_wait_all();}
+                    //Compute for next idma actions
+                    gemm_systolic_wise_compute_dma_access(&info, i+1);
+                } else {
+                    //Asynchronizly execute idma actions
+                    if (info.use_dma1) flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size);
+                    if (info.use_dma2) flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size);
+                    info.dma_runing = info.use_dma1 | info.use_dma2;
+
+                    //Compute for next idma actions
+                    gemm_systolic_wise_compute_dma_access(&info, i+1);
+
+                    //Wait for idma done
+                    if (info.dma_runing) flex_dma_async_wait_all();
+                }
+            }
+
+            //Global synchronization
+            flex_global_barrier_xy();
+        }
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_end();
+    }
 }
 
 // Helper function for quickselect partitioning
@@ -1239,7 +1277,8 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
     //do row-wise broadcast from cluster 0
     if (flex_is_dm_core() && flex_get_cluster_id() == 0)
     {
-        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        // flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        flex_dma_async_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size, 0, 0);
         flex_dma_async_wait_all();
     }
 
@@ -1251,7 +1290,8 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
         if (flex_is_dm_core() && flex_get_cluster_id() == cid)
         {   
             // Broadcast the data in the local TCDM to the entire column
-            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+            // flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+            flex_dma_async_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size, 0, 0);
         }
         flex_global_barrier_xy();
     }
