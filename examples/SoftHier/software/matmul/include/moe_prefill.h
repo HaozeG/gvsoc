@@ -25,10 +25,10 @@
 #define TILE_WIDTH_EXPERT_1 448
 
 // Parameters for GEMM
-#define GEMM_TILE_WIDTH_M 256
+#define GEMM_TILE_WIDTH_M 128
 #define GEMM_TILE_WIDTH_N 256
 #define GEMM_TILE_WIDTH_K 64
-#define SEQ_LEN GEMM_TILE_WIDTH_M * ARCH_NUM_CLUSTER
+#define SEQ_LEN GEMM_TILE_WIDTH_M * ARCH_NUM_CLUSTER_Y
 
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 16
@@ -43,7 +43,7 @@ typedef uint16_t cluster_map_t;
 // 2.5 in float
 fp16 route_scale = (fp16)0x4100;
 
-void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr);
+void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr);
 void gemv(const uint64_t A, const uint64_t B, const uint64_t C, const uint16_t K, const uint16_t M, const uint16_t N, const uint64_t bias_addr, cluster_map_t cluster_map, uint16_t tile_width);
 void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
 void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t dim, const uint16_t n_token, cluster_map_t cluster_map);
@@ -65,6 +65,7 @@ int32_t min(int32_t a, int32_t b);
 void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t size);
 
 typedef struct {
+    uint32_t curr_HBM_node[256];
     uint64_t value_offset[256];
     uint64_t index_offset[256];
 } ExpertOffset;
@@ -415,18 +416,20 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
 }
 
 /**
- * @brief Select top k values from each row of the input matrix and write the result to the output matrix along with the corresponding indices. Input matrix is already in TCDM.
+ * @brief Select top k values from each row of the input matrix, normalize along each token, and gather the resulting weighted input token to the output matrix along with the corresponding indices. Input matrix is already in TCDM.
  * 
- * @param in_addr in TCDM
- * @param out_value_addr in HBM
- * @param out_index_addr in HBM
+ * @param in_weight_addr in TCDM
+ * @param in_token_offset in HBM
+ * @param base_out_token_offset in HBM
+ * @param base_out_index_offset in HBM
  * @param k top k values to select (less than 256)
+ * @param dim dimension of the token
  * @param n_routed_expert number of candidate values in each row of the input matrix
  * @param n_token_per_cluster number of rows to process for each activated cluster
- * @param cluster_map
+ * @param cluster_map requires activated clusters to be the whole colomn of clusters on west edge
  * @param expert_offset offset of tokens for each expert in HBM
  */
-void top_k_gather(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t out_index_addr, const uint16_t k, const uint16_t n_routed_expert, const uint16_t n_token_per_cluster, cluster_map_t cluster_map, ExpertOffset* expert_offset) {
+void top_k_weighted_gather(const uint64_t in_weight_addr, const uint64_t in_token_offset, const uint64_t base_out_token_offset, const uint64_t base_out_index_offset, const uint16_t k, const uint16_t n_routed_expert, const uint16_t dim, const uint16_t n_token_per_cluster, cluster_map_t cluster_map, ExpertOffset* expert_offset) {
     if (0 == k || 0 == n_routed_expert || 0 == n_token_per_cluster || k > 256) {
         return;
     }
@@ -437,15 +440,37 @@ void top_k_gather(const uint64_t in_addr, const uint64_t out_value_addr, const u
     // cluster_id among activated clusters
     uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
     uint32_t n_cluster_activated = 0;
-
-    uint32_t local_out_value, local_out_indices, local_in;
+    uint32_t i_row_cluster;
+    
+    uint32_t local_out_value, local_out_indices, local_in_weight, local_in_token, local_token_index, local_token_count, local_sum, n_tokens_per_expert;
     local_out_value = ARCH_CLUSTER_TCDM_SIZE - n_token_per_cluster * k * DATA_SIZE_BYTES;
     local_out_indices = local_out_value - n_token_per_cluster * k * DATA_SIZE_BYTES;
-    local_in = in_addr;
-    local_out_indices += core_id * k * DATA_SIZE_BYTES;
-    local_out_value += core_id * k * DATA_SIZE_BYTES;
-    uint32_t n_tokens_per_expert = local_out_indices - n_routed_expert * DATA_SIZE_BYTES;
+    local_token_index = local_out_indices - DATA_SIZE_BYTES;
+    local_token_count = local_token_index - sizeof(ExpertOffset);
+    local_in_token = local_token_count - n_token_per_cluster * dim * DATA_SIZE_BYTES;
+    local_sum =  local_in_token - DATA_SIZE_BYTES;
+    n_tokens_per_expert = local_out_indices - n_routed_expert * DATA_SIZE_BYTES;
     uint16_t * n_tokens_per_expert_ptr = (uint16_t *)n_tokens_per_expert;
+    // curr_token_count records the information of destination offsets in HBM when processing current tokens in this cluster
+    ExpertOffset *curr_token_count = (ExpertOffset *)local(local_token_count);
+    local_in_weight = in_weight_addr;
+    if (cluster_id == 0 && core_id == 0) {
+        printf("[TOP_K] n_tokens_per_expert_ptr = 0x%x\n", n_tokens_per_expert_ptr);
+        printf("[TOP_K] local_out_value = 0x%x\n", local_out_value);
+        printf("[TOP_K] local_out_indices = 0x%x\n", local_out_indices);
+        printf("[TOP_K] local_in_weight = 0x%x\n", local_in_weight);
+        printf("[TOP_K] local_in_token = 0x%x\n", local_in_token);
+        printf("[TOP_K] local_token_index = 0x%x\n", local_token_index);
+        printf("[TOP_K] local_token_count = 0x%x\n", local_token_count);
+        printf("[TOP_K] local_sum = 0x%x\n", local_sum);
+        printf("[TOP_K] n_routed_expert = %d\n", n_routed_expert);
+        printf("[TOP_K] n_token_per_cluster = %d\n", n_token_per_cluster);
+        printf("[TOP_K] dim = %d\n", dim);
+    }
+    flex_global_barrier_xy();
+
+    // local_out_indices += core_id * k * DATA_SIZE_BYTES;
+    // local_out_value += core_id * k * DATA_SIZE_BYTES;
     if ((cluster_map & (0x01 << cluster_id)) != 0) {
         for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
             if ((cluster_map & (0x01 << i)) != 0) {
@@ -455,53 +480,85 @@ void top_k_gather(const uint64_t in_addr, const uint64_t out_value_addr, const u
                 n_cluster_activated += 1;
             }
         }
-        uint32_t i_row_cluster = 0;
-
+        
+        i_row_cluster = core_id;
         // Allocate an array for indices
         uint16_t indices[256]; // 256 should be large enough for n_routed_expert
         while (i_row_cluster < n_token_per_cluster) {
-            if ((i_row_cluster + core_id) < n_token_per_cluster) {
-                // Initialize index array
-                for (int i = 0; i < n_routed_expert; i++) {
-                    indices[i] = i;
-                }
-                
-                // Quickselect to partition the array so that the k largest elements are at the beginning
-                quickselect((uint16_t*)local(local_in), indices, 0, n_routed_expert - 1, k - 1);
-                
-                // // Sort the top k elements (if needed for fully sorted output)
-            //     // Simple insertion sort for the small k values
-            //     for (int i = 1; i < k; i++) {
-            //         uint16_t key_val = ((uint16_t *)local(local_in))[i];
-            //         uint16_t key_idx = indices[i];
-            //         int j = i - 1;
-                    
-            //         while (j >= 0 && asm_fp16_compare((const fp16 *)&key_val, (const fp16 *)&(((uint16_t *)local(local_in))[j])) == 1) {
-            //             ((uint16_t *)local(local_in))[j + 1] = ((uint16_t *)local(local_in))[j];
-            //             indices[j + 1] = indices[j];
-            //             j--;
-            //         }
-                    
-            //         ((uint16_t *)local(local_in))[j + 1] = key_val;
-            //         indices[j + 1] = key_idx;
-            //     }
-                // Copy to output buffers
-                for (int i = 0; i < k; i++) {
-                    ((uint16_t *)local(local_out_value))[i] = ((uint16_t *)local(local_in))[i];
-                    ((uint16_t *)local(local_out_indices))[i] = indices[i];
-                }
+            // if (core_id == 0 && cluster_id == 0) {
+            //     printf("[TOP_K] i_row_cluster = %d\n", i_row_cluster);
+            // }
+            // Initialize index array
+            for (int i = 0; i < n_routed_expert; i++) {
+                indices[i] = i;
             }
             
+            // Quickselect to partition the array so that the k largest elements are at the beginning
+            quickselect((uint16_t*)local(local_in_weight + i_row_cluster * n_routed_expert * DATA_SIZE_BYTES), indices, 0, n_routed_expert - 1, k - 1);
+        
+            // Copy to buffers
+            for (int i = 0; i < k; i++) {
+                ((uint16_t *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES))[i] = ((uint16_t *)local(local_in_weight + i_row_cluster * n_routed_expert * DATA_SIZE_BYTES))[i];
+                ((uint16_t *)local(local_out_indices + i_row_cluster * k * DATA_SIZE_BYTES))[i] = indices[i];
+            }
             i_row_cluster += ARCH_NUM_CORE_PER_CLUSTER;
-            local_out_indices += ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
-            local_out_value += ARCH_NUM_CORE_PER_CLUSTER * k * DATA_SIZE_BYTES;
-            local_in += ARCH_NUM_CORE_PER_CLUSTER * n_routed_expert * DATA_SIZE_BYTES;
         }
 
         flex_intra_cluster_sync();
+        // Normalize the output values
+        // process one row per cluster at a time
+        i_row_cluster = 0;
+        while (i_row_cluster < n_token_per_cluster) {            
+            if (0 == core_id) {
+                float sum = 0;
+                for (int i = 0; i < k; i++) {
+                    // printf("[NORMALIZE] 0x%x\n", ((fp16 *)local(local_out))[i]);
+                    sum += fp16_to_float(((fp16 *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES))[i]);
+                }
+                ((fp16 *)local(local_sum))[0] = float_to_fp16(sum);
+            }
+            flex_intra_cluster_sync();
 
-        // local counting: to know how many tokens each expert gets in this cluster
-        if (core_id == 0) {
+            #ifdef SPATZ_ENABLE
+            if (0 == core_id) {
+                uint16_t * local_in_ptr = (uint16_t *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
+                uint16_t * local_out_ptr = (uint16_t *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
+                
+                asm volatile("vsetvli zero, %0, e16, m8, ta, ma" : : "r"(dim));
+                asm volatile("fmv.h.x ft0, %0" : : "r"(((fp16 *)local(local_sum))[0]));
+                // compute element-wise operation with spatz core
+                uint16_t vl;
+                uint16_t i_element = 0;
+                while (k > i_element) {
+                    asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, dim - i_element)));
+                    asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                    asm volatile("vfdiv.vf v1, v0, ft0");
+                    asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+
+                    local_in_ptr += vl;
+                    local_out_ptr += vl;
+                    i_element += vl;
+                }
+            }
+            #else
+            // TODO: now not supported without spatz core
+            uint32_t n_element_per_core = (dim - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
+            for (int i = 0; i < n_element_per_core; i++) {
+                if (i + core_id * n_element_per_core < dim) {
+                    fp16 a = ((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                    fp16 *b_ptr = (fp16 *)local(local_sum);
+                    fp16 *c_ptr = &((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                    // if (0 == core_id) {
+                    //     printf("[NORMALIZE] a = 0x%x sum = 0x%x\n", a, *b_ptr);
+                    // }
+                    asm_fp16_div(&a, b_ptr, c_ptr);
+                }
+            }
+            #endif
+            i_row_cluster += 1;
+        }
+        // LOCAL COUNTING: to know how many tokens each expert gets in this cluster
+        if (0 == core_id) {
             // initialize to 0
             for (int i = 0; i < n_routed_expert; i++) {
                 n_tokens_per_expert_ptr[i] = 0;
@@ -513,6 +570,11 @@ void top_k_gather(const uint64_t in_addr, const uint64_t out_value_addr, const u
                     n_tokens_per_expert_ptr[index] += 1;
                 }
             }
+            // if (0 == cluster_id) {
+            //     for (int i = 0; i < n_routed_expert; i++) {
+            //         printf("[TOP_K] n_tokens_per_expert_ptr[%d] = %d\n", i, n_tokens_per_expert_ptr[i]);
+            //     }
+            // }
         }
         // TODO: if atomic operation is supported, we can use atomic operation to do parallel counting
         // uint32_t n_tokens_per_core = (n_token_per_cluster - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
@@ -523,31 +585,168 @@ void top_k_gather(const uint64_t in_addr, const uint64_t out_value_addr, const u
         //     }
         // }
         flex_intra_cluster_sync();
-        
-        // global counting: to know how many tokens each expert gets in all clusters
-        // parallel reduction
-        if (flex_is_dm_core() && cluster_id == 0) {
-            flex_dma_async_1d_reduction(remote_pos(bottom_pos(get_pos(cluster_id)), n_tokens_per_expert), local(n_tokens_per_expert), n_routed_expert * DATA_SIZE_BYTES, COLLECTIVE_REDADD_INT_16);
-            flex_dma_async_wait_all();
-        }
+        // Check local counting result
+        // if (0 == local_cluster_id && 0 == core_id) {
+        //     for (int i = 0; i < n_routed_expert; i++) {
+        //         printf("[TOP_K] n_tokens_per_expert_ptr[%d] = %d\n", i, n_tokens_per_expert_ptr[i]);
+        //     }
+        // }
     }
     flex_global_barrier_xy();
-    if (local_cluster_id < n_cluster_activated) {
-        // calculate HBM offset for each expert
-        expert_offset->value_offset[0] = out_value_addr;
-        expert_offset->index_offset[0] = out_index_addr;
-        for (int i = 1; i < n_routed_expert; i++) {
-            expert_offset->value_offset[i] = out_value_addr + expert_offset->value_offset[i - 1] + (n_tokens_per_expert_ptr[i - 1] * DATA_SIZE_BYTES - 1) / n_cluster_activated + 1;
-            expert_offset->index_offset[i] = out_index_addr + expert_offset->index_offset[i - 1] + (n_tokens_per_expert_ptr[i - 1] * DATA_SIZE_BYTES - 1) / n_cluster_activated + 1;
-        }
+    // GLOBAL COUNTING: to know how many tokens each expert gets in all clusters
+    // reduce the result to cluster 0
+    if (0 == local_cluster_id && flex_is_dm_core()) {
+        flex_dma_async_reduction(n_tokens_per_expert, n_tokens_per_expert, n_routed_expert * sizeof(uint16_t), COLLECTIVE_REDADD_INT_16, 0b11, 0b00);
+        flex_dma_async_wait_all();
+    }
+    flex_global_barrier_xy();
+    // broadcast the result to all clusters
+    if (0 == local_cluster_id && flex_is_dm_core()) {
+        flex_dma_async_broadcast(n_tokens_per_expert, n_tokens_per_expert, n_routed_expert * sizeof(uint16_t), 0b11, 0b00);
+        flex_dma_async_wait_all();
+    }
+    flex_global_barrier_xy();
 
-        uint32_t token_index_offset = local_cluster_id * n_token_per_cluster;
-        // gather the top k values and indices to HBM
-        // iterate over activated clusters, not parallelized
-        for (int i = 0; i < n_cluster_activated; i++) {
-            if (local_cluster_id == i) {
-                for (int j = 0; j < n_token_per_cluster; j++) {
-                    // TODO:
+    // Check global counting result
+    // for (int i_cluster = 0; i_cluster < n_cluster_activated; i_cluster++) {
+    //     if (local_cluster_id == i_cluster && 0 == core_id) {
+    //         printf("[TOP_K] cluster %d\n", cluster_id);
+    //         for (int i = 0; i < n_routed_expert; i++) {
+    //             printf("[TOP_K] n_tokens_per_expert_ptr[%d] = %d\n", i, n_tokens_per_expert_ptr[i]);
+    //         }
+    //     }
+    //     flex_global_barrier_xy();
+    // }
+    // flex_global_barrier_xy();
+
+    if (local_cluster_id < n_cluster_activated) {
+        if (0 == core_id) {
+            for (int i = 0; i < n_routed_expert; i++) {
+                curr_token_count->curr_HBM_node[i] = 0;
+                curr_token_count->value_offset[i] = 0;
+                curr_token_count->index_offset[i] = 0;
+            }
+        }
+        // calculate HBM offset of each expert's token buffer
+        // tokens evenly distributed to all west HBM nodes
+        if (1 == core_id) {
+            expert_offset->value_offset[0] = base_out_token_offset;
+            expert_offset->index_offset[0] = base_out_index_offset;
+            for (int i = 1; i < n_routed_expert; i++) {
+                expert_offset->value_offset[i] = expert_offset->value_offset[i - 1] + ((n_tokens_per_expert_ptr[i - 1] - 1) / n_cluster_activated + 1) * dim * DATA_SIZE_BYTES;
+                expert_offset->index_offset[i] = expert_offset->index_offset[i - 1] + ((n_tokens_per_expert_ptr[i - 1] - 1) / n_cluster_activated + 1) * DATA_SIZE_BYTES;
+            }
+        }
+        // Check expert offset result
+        // if (0 == cluster_id && 0 == core_id) {
+        //     for (int i = 0; i < n_routed_expert; i++) {
+        //         printf("[TOP_K] expert_offset->value_offset[%d] = 0x%x\n", i, expert_offset->value_offset[i]);
+        //         printf("[TOP_K] expert_offset->index_offset[%d] = 0x%x\n", i, expert_offset->index_offset[i]);
+        //         print64(expert_offset->value_offset[i]);
+        //         print64(expert_offset->index_offset[i]);
+        //     }
+        // }   
+        // load n_token_per_cluster tokens to TCDM
+        if (flex_is_dm_core()) {
+            flex_dma_async_1d(local(local_in_token), hbm_west((uint64_t)local_cluster_id, in_token_offset), n_token_per_cluster * dim * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        // flex_intra_cluster_sync();
+    }
+    flex_global_barrier_xy();
+    // Check local token result
+    // if (0 == local_cluster_id && 0 == core_id) {
+    //     for (int i = 0; i < n_token_per_cluster; i++) {
+    //         for (int j = 0; j < 8; j++) {
+    //             printf("[TOP_K] local_in_token[%d][%d] = 0x%x\n", i, j, ((fp16 *)local(local_in_token))[i * dim + j]);
+    //         }
+    //     }
+    // }
+
+    return;
+    // TODO: debug till here
+    // GATHER top k values and indices to HBM
+    // iterate over tokens in activated clusters, not parallelized
+    for (int i = 0; i < n_cluster_activated; i++) {
+        if (local_cluster_id == i) {
+            for (int j = 0; j < n_token_per_cluster; j++) {
+                for (int i_k = 0; i_k < k; i_k++) {
+                    uint16_t i_expert = ((uint16_t *)local(local_out_indices))[j * k + i_k];
+                    fp16 w_expert = ((fp16 *)local(local_out_value))[j * k + i_k];
+                    uint16_t *local_token_index_ptr = (uint16_t *)local(local_token_index);
+                    *local_token_index_ptr = i * n_token_per_cluster + j;
+                    uint32_t value_dest_addr = expert_offset->value_offset[i_expert] + curr_token_count->value_offset[i_expert] * dim * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i_expert], 0);
+                    uint32_t index_dest_addr = expert_offset->index_offset[i_expert] + curr_token_count->index_offset[i_expert] * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i_expert], 0);
+                    // apply weight to token using spatz core
+                    if (flex_is_first_core()) {
+                        uint16_t * local_in_ptr = (uint16_t *)local(local_in_token + j * dim * DATA_SIZE_BYTES);
+                        uint16_t * local_out_ptr = (uint16_t *)local(local_in_token + j * dim * DATA_SIZE_BYTES);
+                        uint16_t vl;
+                        uint16_t i_element = 0;
+                        asm volatile("fmv.h.x ft0, %0" : : "r"(w_expert));
+                        while (dim > i_element) {
+                            asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, dim - i_element)));
+                            asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                            asm volatile("vfmul.vf v1, v0, ft0");
+                            asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+
+                            local_in_ptr += vl;
+                            local_out_ptr += vl;
+                            i_element += vl;
+                        }
+                    }
+                    // transfer the weighted token to HBM
+                    if (flex_is_dm_core()) {
+                        flex_dma_async_1d(value_dest_addr, local(local_in_token) + j * dim * DATA_SIZE_BYTES, dim * DATA_SIZE_BYTES);
+                        flex_dma_async_1d(index_dest_addr, local(local_token_index), DATA_SIZE_BYTES);
+                        flex_dma_async_wait_all();
+                    }
+                    if (0 == core_id) {
+                        // update the curr_token_count information
+                        curr_token_count->value_offset[i_expert] += 1;
+                        curr_token_count->index_offset[i_expert] += 1;
+                        // compare with token buffer size of i_expert
+                        if (curr_token_count->value_offset[i_expert] >= ((n_tokens_per_expert_ptr[i_expert] - 1) / n_cluster_activated + 1)) {
+                            curr_token_count->value_offset[i_expert] = 0;
+                            curr_token_count->index_offset[i_expert] = 0;
+                            // move to next HBM node if token buffer for current HBM node is full
+                            curr_token_count->curr_HBM_node[i] += 1;
+                        }
+                    }
+                }
+            }
+            // update the curr_token_count information to next cluster
+            if (flex_is_dm_core()) {
+                flex_dma_async_1d(remote_pos(top_pos(get_pos(cluster_id)), local_token_count), local_token_count, sizeof(ExpertOffset));
+                flex_dma_async_wait_all();
+            }
+        }
+        flex_global_barrier_xy();
+    }
+    flex_global_barrier_xy();
+    if (local_cluster_id == n_cluster_activated - 1) {
+        // fill the remaining token buffer with 0 as values and ~0 as indices
+        for (int i = 0; i < n_routed_expert; i++) {
+            while (curr_token_count->curr_HBM_node[i] != 0) {
+                if (flex_is_dm_core()) {
+                    uint16_t *local_token_index_ptr = (uint16_t *)local(local_token_index);
+                    *local_token_index_ptr = ~0;
+                    uint32_t value_dest_addr = expert_offset->value_offset[i] + curr_token_count->value_offset[i] * dim * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i], 0);
+                    uint32_t index_dest_addr = expert_offset->index_offset[i] + curr_token_count->index_offset[i] * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i], 0);
+                    flex_dma_async_1d(value_dest_addr, zomem(0), dim * DATA_SIZE_BYTES);
+                    flex_dma_async_1d(index_dest_addr, local(local_token_index), DATA_SIZE_BYTES);
+                    flex_dma_async_wait_all();
+                }
+                if (0 == core_id) {
+                    curr_token_count->value_offset[i] += 1;
+                    curr_token_count->index_offset[i] += 1;
+                    // compare with token buffer size of i_expert
+                    if (curr_token_count->value_offset[i] >= ((n_tokens_per_expert_ptr[i] - 1) / n_cluster_activated + 1)) {
+                        curr_token_count->value_offset[i] = 0;
+                        curr_token_count->index_offset[i] = 0;
+                        // move to next HBM node
+                        curr_token_count->curr_HBM_node[i] += 1;
+                    }
                 }
             }
         }
@@ -1209,7 +1408,7 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
     //do row-wise broadcast from cluster 0
     if (flex_is_dm_core() && flex_get_cluster_id() == 0)
     {
-        flex_dma_async_1d_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
+        // flex_dma_async_broadcast(remote_pos(left_pos(pos), dst_addr), src_addr, size);
         flex_dma_async_wait_all();
     }
 
@@ -1221,20 +1420,26 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
         if (flex_is_dm_core() && flex_get_cluster_id() == cid)
         {   
             // Broadcast the data in the local TCDM to the entire column
-            flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
+            // flex_dma_async_1d_broadcast(remote_pos(bottom_pos(pos), dst_addr), local(dst_addr), size);
         }
         flex_global_barrier_xy();
     }
     flex_global_barrier_xy();
 }
 
-void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr) {
-    cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all;
+void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr) {
+    cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all, cluster_west_edge;
     cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14
     cluster_coloring_1 = 0xA5A5;    // 1010010110100101: 0 2 5 7 8 10 13 15
     cluster_all = 0xFFFF;
+    cluster_west_edge = 0x1111; // 0001000100010001: 0 4 8 12
     uint64_t local_token_offset, local_index_offset;
+    local_token_offset = 0;
+    local_index_offset = local_token_offset + n_token * dim * DATA_SIZE_BYTES;
     uint64_t *local_token_offset_ptr = &local_token_offset;
+    uint64_t hbm_token_offset, hbm_index_offset;
+    hbm_token_offset = actual_out_addr;
+    hbm_index_offset = hbm_token_offset + ((n_token * dim - 1) / ARCH_NUM_CLUSTER_Y + 1) * DATA_SIZE_BYTES;
     ExpertOffset expert_offset;
 
     uint16_t n_token_per_cluster = GEMM_TILE_WIDTH_M;
@@ -1243,10 +1448,13 @@ void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_
     for (int i_token = 0; i_token < n_token; i_token += SEQ_LEN) {
         // TODO: no write back, result stored in clusters' TCDM
         // the computation of all clusters should cover the whole output matrix at once? Otherwise, require store back
-        gemm_systolic_wise(SEQ_LEN, dim, n_routed_experts, DATA_SIZE_BYTES, GEMM_TILE_WIDTH_M, GEMM_TILE_WIDTH_N, GEMM_TILE_WIDTH_K, local_token_offset_ptr);
+        // gemm_systolic_wise(SEQ_LEN, dim, n_routed_experts, DATA_SIZE_BYTES, GEMM_TILE_WIDTH_M, GEMM_TILE_WIDTH_N, GEMM_TILE_WIDTH_K, local_token_offset_ptr);
         flex_global_barrier_xy();
-        // // TODO: modify the load and store, do not involve HBM
-        top_k_gather(local(local_token_offset), local(local_token_offset), local(local_index_offset), n_activated_experts, n_routed_experts, n_token_per_cluster, cluster_all, &expert_offset);
+        if (0 == flex_get_cluster_id() && flex_is_dm_core()) {  
+            flex_dma_async_1d(local(local_token_offset), hbm_addr(in_token_offset + i_token * n_activated_experts * DATA_SIZE_BYTES), SEQ_LEN * n_activated_experts * DATA_SIZE_BYTES);
+            flex_dma_async_wait_all();
+        }
+        top_k_weighted_gather(local(local_token_offset), in_token_offset, (hbm_token_offset), (hbm_index_offset), n_activated_experts, n_routed_experts, dim, n_token_per_cluster, cluster_west_edge, &expert_offset);
         // flex_global_barrier_xy();
         // sigmoid(local(local_token_offset), local(local_token_offset), n_activated_experts, n_token_per_cluster, cluster_all);
         // flex_global_barrier_xy();
