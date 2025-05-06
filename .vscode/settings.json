@@ -15,6 +15,7 @@
         "*.tcc": "cpp",
         "type_traits": "cpp",
         "tuple": "cpp",
-        "flex_dma_pattern.h": "c"
+        "flex_dma_pattern.h": "c",
+        "gemm_systolic_wise.h": "c"
     }
 }

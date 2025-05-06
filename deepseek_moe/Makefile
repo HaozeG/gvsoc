@@ -86,11 +86,17 @@ sw_decode_centralized_pfto:
 
 
 # Prefill
+hs_prefill_clean:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_prefill) make -C ../ hs run
+
+hs_prefill_clean_pfto:
+	cfg=$(abspath config/arch_NoC512.py) app=$(abspath moe_prefill) make -C ../ hs runv pfto
+	
 sw_prefill_clean:
-	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_prefill) make -C ../ sw run
+	app=$(abspath moe_prefill) make -C ../ sw run
 
 sw_prefill_clean_pfto:
-	cfg=$(abspath config/arch_NoC512_spatz.py) app=$(abspath moe_prefill) make -C ../ sw runv pfto
+	app=$(abspath moe_prefill) make -C ../ sw runv pfto
 
 # GEMV
 # hbm_gemv:
