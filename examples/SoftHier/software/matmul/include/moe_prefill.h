@@ -530,45 +530,45 @@ void top_k_weighted_gather(const uint64_t in_weight_addr, const uint64_t in_toke
             }
             flex_intra_cluster_sync();
 
-            #ifdef SPATZ_ENABLE
-            if (0 == core_id) {
-                // prevent divide by zero
-                if (FP16_ZERO != ((fp16 *)local(local_sum))[0]) {
-                    DTYPE * local_in_ptr = (DTYPE *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
-                    DTYPE * local_out_ptr = (DTYPE *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
-                    
-                    asm volatile("vsetvli zero, %0, e16, m8, ta, ma" : : "r"(dim));
-                    asm volatile("fmv.h.x ft0, %0" : : "r"(((fp16 *)local(local_sum))[0]));
-                    // compute element-wise operation with spatz core
-                    uint16_t vl;
-                    uint16_t i_element = 0;
-                    while (k > i_element) {
-                        asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, dim - i_element)));
-                        asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
-                        asm volatile("vfdiv.vf v1, v0, ft0");
-                        asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+            if (FP16_ZERO != ((fp16 *)local(local_sum))[0]) {
+                #ifdef SPATZ_ENABLE
+                if (0 == core_id) {
+                    // prevent divide by zero
+                        DTYPE * local_in_ptr = (DTYPE *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
+                        DTYPE * local_out_ptr = (DTYPE *)local(local_out_value + i_row_cluster * k * DATA_SIZE_BYTES);
                         
-                        local_in_ptr += vl;
-                        local_out_ptr += vl;
-                        i_element += vl;
+                        asm volatile("vsetvli zero, %0, e16, m8, ta, ma" : : "r"(dim));
+                        asm volatile("fmv.h.x ft0, %0" : : "r"(((fp16 *)local(local_sum))[0]));
+                        // compute element-wise operation with spatz core
+                        uint16_t vl;
+                        uint16_t i_element = 0;
+                        while (k > i_element) {
+                            asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, dim - i_element)));
+                            asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                            asm volatile("vfdiv.vf v1, v0, ft0");
+                            asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+                            
+                            local_in_ptr += vl;
+                            local_out_ptr += vl;
+                            i_element += vl;
+                        }
+                    }
+                #else
+                // TODO: now not supported without spatz core
+                uint32_t n_element_per_core = (dim - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
+                for (int i = 0; i < n_element_per_core; i++) {
+                    if (i + core_id * n_element_per_core < dim) {
+                        fp16 a = ((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                        fp16 *b_ptr = (fp16 *)local(local_sum);
+                        fp16 *c_ptr = &((fp16 *)local(local_out))[i + core_id * n_element_per_core];
+                        // if (0 == core_id) {
+                        //     printf("[NORMALIZE] a = 0x%x sum = 0x%x\n", a, *b_ptr);
+                        // }
+                        asm_fp16_div(&a, b_ptr, c_ptr);
                     }
                 }
+                #endif
             }
-            #else
-            // TODO: now not supported without spatz core
-            uint32_t n_element_per_core = (dim - 1) / ARCH_NUM_CORE_PER_CLUSTER + 1;
-            for (int i = 0; i < n_element_per_core; i++) {
-                if (i + core_id * n_element_per_core < dim) {
-                    fp16 a = ((fp16 *)local(local_out))[i + core_id * n_element_per_core];
-                    fp16 *b_ptr = (fp16 *)local(local_sum);
-                    fp16 *c_ptr = &((fp16 *)local(local_out))[i + core_id * n_element_per_core];
-                    // if (0 == core_id) {
-                    //     printf("[NORMALIZE] a = 0x%x sum = 0x%x\n", a, *b_ptr);
-                    // }
-                    asm_fp16_div(&a, b_ptr, c_ptr);
-                }
-            }
-            #endif
             i_row_cluster += 1;
         }
         // LOCAL COUNTING: to know how many tokens each expert gets in this cluster
@@ -901,8 +901,8 @@ void normalize(const uint64_t in_addr, const uint64_t out_addr, const uint16_t d
                             asm_fp16_div(&a, b_ptr, c_ptr);
                     }
                 }
+                #endif
             }
-            #endif
             flex_intra_cluster_sync();
             // transfer the top k values and indices to HBM
             if (flex_is_dm_core()) {
@@ -1507,11 +1507,11 @@ void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint6
         // TODO: no write back, result stored in clusters' TCDM
         // the computation of all clusters should cover the whole output matrix at once? Otherwise, require store back
         // gemm_systolic_wise(SEQ_LEN, dim, n_routed_experts, DATA_SIZE_BYTES, GEMM_TILE_WIDTH_M, GEMM_TILE_WIDTH_N, GEMM_TILE_WIDTH_K, local_token_offset_ptr);
-        flex_global_barrier_xy();
         if (0 == flex_get_cluster_id() && flex_is_dm_core()) {  
             flex_dma_async_1d(local(local_token_offset), hbm_addr(in_token_offset + i_token * n_activated_experts * DATA_SIZE_BYTES), SEQ_LEN * n_activated_experts * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
         }
+        flex_global_barrier_xy();
         top_k_weighted_gather(local(local_token_offset), in_token_offset, hbm_token_offset, hbm_index_offset, n_activated_experts, n_routed_experts, dim, n_token_per_cluster, cluster_west_edge, (ExpertOffset *)local_expert_offset);
         // flex_global_barrier_xy();
         // sigmoid(local(local_token_offset), local(local_token_offset), n_activated_experts, n_token_per_cluster, cluster_all);
