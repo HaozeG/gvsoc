@@ -100,6 +100,11 @@ typedef struct GemmSystolicInfo
     uint32_t redmule_x;
     uint32_t redmule_w;
     uint32_t redmule_y;
+
+    // addresses
+    uint64_t A_addr;
+    uint64_t B_addr;
+    uint64_t C_addr;
 }GemmSystolicInfo;
 
 void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_addr);
@@ -126,10 +131,10 @@ void broadcast_to_all_clusters(uint64_t dst_addr, uint64_t src_addr, uint64_t si
 // Systolicc GEMM related functions
 // FIXME: execution stuck when spatz enabled in the HW config, reason unknown
 // FIXME: execution stuck when hbm_node_addr_space extend to 0x10000000
-GemmSystolicInfo gemm_systolic_wise_analysis(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K);
-void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter, const uint64_t bias_addr);
+GemmSystolicInfo gemm_systolic_wise_analysis(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K);
+void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter, const uint64_t bias_addr, uint16_t specify_addr);
 void gemm_systolic_wise_compute_redmule_action(GemmSystolicInfo * info, uint32_t iter);
-void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K, const uint64_t bias_addr);
+void gemm_systolic_wise(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K, const uint64_t bias_addr, uint16_t specify_addr);
 
 void print64(uint64_t input) {
     printf(" ##0x%08x%08x## ", (uint32_t)(input >> 32), (uint32_t)input);
@@ -151,10 +156,11 @@ int32_t min(int32_t a, int32_t b) {
  * @param tile_dimension_K 
  * @return GemmSystolicInfo 
  */
-GemmSystolicInfo gemm_systolic_wise_analysis(
-    uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size,
-    uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K){
+GemmSystolicInfo gemm_systolic_wise_analysis(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K){
     GemmSystolicInfo info;
+    info.A_addr = A;
+    info.B_addr = B;
+    info.C_addr = C;
     info.matrix_M = M_size;
     info.matrix_N = N_size;
     info.matrix_K = K_size;
@@ -202,7 +208,7 @@ GemmSystolicInfo gemm_systolic_wise_analysis(
  * @param info 
  * @param iter 
  */
-void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter, const uint64_t bias_addr){
+void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t iter, const uint64_t bias_addr, uint16_t specify_addr){
 
     //Set defualt number
     info->use_dma1 = 0;
@@ -224,7 +230,12 @@ void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t ite
             {
                 info->use_sync_dma = 1;
                 info->use_dma1 = 1;
-                info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+                if(specify_addr){
+                    info->dma1_dst = info->C_addr + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+                } else {
+                    info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+                }
+                // info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
                 info->dma1_src = local(info->Y_offset);
                 info->dma1_size = info->tile_size_byte_Y;
                 info->use_dma2 = 1;
@@ -252,7 +263,22 @@ void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t ite
             if(pos.x == 0){
                 /* clusters at west edge hbm transfer*/
                 info->dma1_dst = local(local_x);
-                info->dma1_src = hbm_west(pos.y,0) + xw_count * info->tile_size_byte_X;
+                if(specify_addr){
+                    // FIXME: cluster_offset causing no entry found for burst
+                    info->dma1_src = info->A_addr + (xw_count * info->tile_size_byte_X);
+
+                    // For debug
+                    // flex_global_barrier_xy();
+                    // if(info->dma1_src == 0x145c3b800) {
+                    //     printf("Debug: DMA1 source address matches the specific value 0x145c3b800\n");
+                    //     printf("Cluster Offset: 0x%08x%08x\n", (uint32_t)(cluster_offset >> 32), (uint32_t)(cluster_offset & 0xFFFFFFFF));
+                    //     printf("Cluster ID causing assertion: %u\n", flex_get_cluster_id());
+                    // }
+                    // flex_global_barrier_xy();
+                } else {
+                    info->dma1_src = hbm_west(pos.y,0) + xw_count * info->tile_size_byte_X;
+                }
+                // info->dma1_src = hbm_west(pos.y,0) + xw_count * info->tile_size_byte_X;
             } else {
                 /* clusters on-chip transfer*/
                 info->dma1_dst = local(local_x);
@@ -263,7 +289,25 @@ void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t ite
             {
                 /* clusters at south edge hbm transfer*/
                 info->dma2_dst = local(local_w);
-                info->dma2_src = hbm_south(pos.x,0) + xw_count * info->tile_size_byte_W;
+                if(specify_addr){
+                    // FIXME: cluster_offset causing no entry found for burst
+                    info->dma2_src = info->B_addr + (xw_count * info->tile_size_byte_W);
+
+                    // For debug
+                    // flex_global_barrier_xy();
+                    // if(info->dma2_src == 0x145c3b800) {
+                    //     printf("Debug: DMA2 source address matches the specific value 0x145c3b800\n");
+                    //     printf("info->B_addr:");print64(info->B_addr);printf("\n"); // FIXME: incorrect value
+                    //     printf("cluster_offset:");print64(cluster_offset);printf("\n");
+                    //     print64((info->B_addr) + cluster_offset);printf("\n");    // FIXME: this addition gives peculiar value
+                    //     printf("xw_count: 0x%x, tile_size_byte_W: 0x%x, product: 0x%x\n", xw_count, info->tile_size_byte_W, xw_count * info->tile_size_byte_W);
+                    //     printf("Cluster ID causing assertion: %u\n", flex_get_cluster_id());
+                    // }
+                    // flex_global_barrier_xy();
+                } else {
+                    info->dma2_src = hbm_south(pos.x,0) + xw_count * info->tile_size_byte_W;
+                }
+                // info->dma2_src = hbm_south(pos.x,0) + xw_count * info->tile_size_byte_W;
             } else {
                 /* clusters on-chip transfer*/
                 info->dma2_dst = local(local_w);
@@ -280,7 +324,12 @@ void gemm_systolic_wise_compute_dma_access(GemmSystolicInfo * info, uint32_t ite
         FlexPosition pos = get_pos(flex_get_cluster_id());
 
         info->use_dma1 = 1;
-        info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+        if(specify_addr){
+            info->dma1_dst = info->C_addr + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+        } else {
+            info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
+        }
+        // info->dma1_dst = hbm_south(pos.x,0) + (info->matrix_N * info->matrix_K * info->elem_size / ARCH_NUM_CLUSTER_X) + (st_count - 1) * ARCH_NUM_CLUSTER_Y * info->tile_size_byte_Y + pos.y * info->tile_size_byte_Y;
         info->dma1_src = local(info->Y_offset);
         info->dma1_size = info->tile_size_byte_Y;
     }
@@ -325,14 +374,34 @@ void gemm_systolic_wise_compute_redmule_action(GemmSystolicInfo * info, uint32_t
  * @param tile_dimension_N 
  * @param tile_dimension_K 
  */
-void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K, const uint64_t bias_addr){
+void gemm_systolic_wise(const uint64_t A, const uint64_t B, const uint64_t C, uint32_t M_size, uint32_t N_size, uint32_t K_size, uint32_t elem_size, uint32_t tile_dimension_M, uint32_t tile_dimension_N, uint32_t tile_dimension_K, const uint64_t bias_addr, uint16_t specify_addr){
     if (0 == M_size || 0 == N_size || 0 == K_size) {
         return;
     }
 
     flex_global_barrier_xy();
     uint32_t CID = flex_get_cluster_id();
-    GemmSystolicInfo info = gemm_systolic_wise_analysis(M_size, N_size, K_size, elem_size,tile_dimension_M,tile_dimension_N,tile_dimension_K);
+    GemmSystolicInfo info = gemm_systolic_wise_analysis(A, B, C, M_size, N_size, K_size, elem_size,tile_dimension_M,tile_dimension_N,tile_dimension_K);
+
+    // cluster_id among activated clusters
+    uint32_t local_cluster_id = ARCH_NUM_CLUSTER;
+    uint32_t n_cluster_activated = 0;
+
+    // TODO: cluster offset may need to be updated depending on the HBM data placement of prefill
+    // Define regular access pattern for HBM nodes
+    // uint64_t cluster_offset;
+    // uint32_t cluster_id_x = CID % ARCH_NUM_CLUSTER_X;
+    // uint32_t cluster_id_y = CID / ARCH_NUM_CLUSTER_X;
+    // uint32_t tile_offset_per_node;
+    // if (1 == ((cluster_id_x % 2) ^ (cluster_id_y % 2))) {
+    //     // cluster_id_x, cluster_id_y has different parity: access south HBM nodes
+    //     cluster_offset = (2 * ARCH_NUM_CLUSTER_Y + ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE + (CID % ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE;
+    //     tile_offset_per_node = (cluster_id_y >> 1);
+    // } else {
+    //     // cluster_id_x, cluster_id_y has the same parity: access west HBM nodes
+    //     cluster_offset = (CID / ARCH_NUM_CLUSTER_X) * (uint64_t)ARCH_HBM_NODE_ADDR_SPACE;
+    //     tile_offset_per_node = (cluster_id_x >> 1);
+    // }
 
     if (flex_is_first_core())
     {
@@ -345,27 +414,10 @@ void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint3
     if (flex_is_dm_core())
     {
         //Pre-Compute DMA actions for the first iteration
-        gemm_systolic_wise_compute_dma_access(&info, 0, bias_addr);
-
-        // Bias
-        // if (bias_addr == zomem(0))
-        // {
-        //     uint32_t zomem_iter = (tile_dimension_M * tile_dimension_N * DATA_SIZE_BYTES) / ARCH_CLUSTER_ZOMEM_SIZE;
-        //     for (int i = 0; i < zomem_iter; i++)
-        //     {
-        //         flex_dma_async_1d(local(info.redmule_y), zomem(0), ARCH_CLUSTER_ZOMEM_SIZE);
-        //     }
-        //     flex_dma_async_wait_all();
-        // }
-        // else
-        // {
-        //     // TODO: the way to load bias may not be correct
-        //     flex_dma_sync_2d(local(info.redmule_y), bias_addr, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_N * DATA_SIZE_BYTES, tile_dimension_M);
-        //     // flex_dma_async_wait_all();
-        // }
+        gemm_systolic_wise_compute_dma_access(&info, 0, bias_addr, specify_addr);
     }
 
-    if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_start();
+    // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_start();
     flex_global_barrier_xy();
  
     for (int i = 0; i < info.total_iter; ++i)
@@ -391,7 +443,7 @@ void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint3
                 if (info.use_dma1) {flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size); flex_dma_async_wait_all();}
                 if (info.use_dma2) {flex_dma_async_1d(info.dma2_dst, info.dma2_src, info.dma2_size); flex_dma_async_wait_all();}
                 //Compute for next idma actions
-                gemm_systolic_wise_compute_dma_access(&info, i+1, bias_addr);
+                gemm_systolic_wise_compute_dma_access(&info, i+1, bias_addr, specify_addr);
             } else {
                 //Asynchronizly execute idma actions
                 if (info.use_dma1) flex_dma_async_1d(info.dma1_dst, info.dma1_src, info.dma1_size);
@@ -399,7 +451,7 @@ void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint3
                 info.dma_runing = info.use_dma1 | info.use_dma2;
 
                 //Compute for next idma actions
-                gemm_systolic_wise_compute_dma_access(&info, i+1, bias_addr);
+                gemm_systolic_wise_compute_dma_access(&info, i+1, bias_addr, specify_addr);
 
                 //Wait for idma done
                 if (info.dma_runing) flex_dma_async_wait_all();
@@ -409,7 +461,7 @@ void gemm_systolic_wise(uint32_t M_size, uint32_t N_size, uint32_t K_size, uint3
         //Global synchronization
         flex_global_barrier_xy();
     }
-    if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_end();
+    // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_end();
 }
 
 // Helper function for quickselect partitioning
