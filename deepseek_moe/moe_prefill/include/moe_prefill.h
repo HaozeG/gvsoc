@@ -21,8 +21,8 @@
 // NOTE: designed such that TILE_WIDTH * 8 = width of output matrix
 // This is for dedicated preload data distribution to enable 1d DMA
 // NOTE: the following TILE_WIDTH should be different to each other, otherwise change the addr_shift value 
-#define TILE_WIDTH_TOKENS 128
-// #define TILE_WIDTH_TOKENS 64
+// #define TILE_WIDTH_TOKENS 128
+#define TILE_WIDTH_TOKENS 32
 // #define TILE_WIDTH 256
 // #define TILE_WIDTH_GATE 16
 #define TILE_WIDTH_GATE 256

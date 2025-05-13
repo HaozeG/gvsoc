@@ -11,8 +11,8 @@ int main()
     /*  Program Execution Region -- Start */
     /**************************************/
 
-    // gemm_systolic_wise(4096, 4096, 4096, 2, 256, 256, 256);
-    gemm_systolic_wise(64, 2048, 7168, 2, 16, 128, 448);
+    gemm_systolic_wise(4096, 4096, 4096, 2, 256, 256, 256);
+    // gemm_systolic_wise(64, 2048, 7168, 2, 16, 128, 448);
 
     /**************************************/
     /*  Program Execution Region -- Stop  */
