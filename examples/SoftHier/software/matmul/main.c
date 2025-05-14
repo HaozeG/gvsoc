@@ -9,7 +9,7 @@
 // #include "moe_decode_centralized.h"
 // #include "moe_decode.h"
 #include "moe_prefill.h"
-#define PRINT_DEBUG 0
+// #define PRINT_DEBUG 0
 
 int main();
 int main(){
@@ -152,7 +152,9 @@ int main(){
                 ((uint16_t *)(hbm_addr(expert_w1_weights_offset)))[j + i * dim] = (uint16_t)0x3c00;
             }
         }
-        ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[3 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[32 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 2 * dim] = (uint16_t)0x3c00;
         // for (int i = 0; i < n_routed_experts; i++) {
         //     for (int j = 0; j < dim/8; j++) {
         //         ((uint16_t *)(hbm_addr(gate_weights_offset)))[j + i * dim] = (uint16_t)0x4000;
@@ -221,36 +223,36 @@ int main(){
             #endif
         }
         printf("\n");
-        printf("expert_w3_weights:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < inter_dim; j++) {
-            for (int j = 0; j < 16; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(expert_w3_weights_offset) + (j + i * inter_dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }
-        printf("actual_out:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 32; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }
-        printf("golden_out:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 16; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(golden_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }        
+        // printf("expert_w3_weights:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < inter_dim; j++) {
+        //     for (int j = 0; j < 16; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(expert_w3_weights_offset) + (j + i * inter_dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
+        // printf("actual_out:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 32; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
+        // printf("golden_out:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 16; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(golden_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }        
     }
 #endif
 
@@ -324,16 +326,32 @@ int main(){
     
 #ifdef PRINT_DEBUG
     // get the output
+    uint64_t out_buffer = 0;
+    if (flex_is_dm_core() && (0 == flex_get_cluster_id())) {
+        flex_dma_async_1d(local(out_buffer), hbm_west((uint64_t)3, actual_out_offset), n_routed_experts * 128* DATA_SIZE_BYTES);
+        flex_dma_async_wait_all();
+    }
+    flex_intra_cluster_sync();
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
         printf("[Check Results]\n");
-        printf("actual_out:\n");
-        for (int i = 0; i < n_token; i++) {
+        // printf("actual_out:\n");
+        // // for (int i = 0; i < (n_token >> 2)*n_routed_experts; i++) {
+        // for (int i = 0; i < 3; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 32; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
+        printf("out_index:\n");
+        for (int i = 0; i < 16; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 16; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+            for (int j = 0; j < 128; j++) {
+                printf("0x%04x ", ((uint16_t *)(out_buffer))[j + i * 128]);
             }
             printf("\n");
         }
