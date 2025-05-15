@@ -12,6 +12,7 @@
 #define SPATZ_ENABLE
 #define SYNC_REDUCE
 
+#define PRINT_DEBUG_CLUSTER_ID 0
 // use float16 as data type
 #define DTYPE fp16
 #define DATA_SIZE_BYTES 2
@@ -434,8 +435,8 @@ void top_k(const uint64_t in_addr, const uint64_t out_value_addr, const uint64_t
  * @param in_token_offset in HBM
  * @param base_out_token_offset in HBM
  * @param base_out_index_offset in HBM
- * @param cluster_map requires activated clusters to be the whole colomn of clusters on west edge
  * @param expert_offset offset of tokens for each expert in HBM
+ * @param cluster_map requires activated clusters to be the whole colomn of clusters on west edge
  */
 void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t n_routed_expert, const uint16_t n_token_per_cluster, const uint64_t in_weight_addr, const uint64_t in_token_offset, const uint64_t base_out_token_offset, const uint64_t base_out_index_offset, ExpertOffset* expert_offset, cluster_map_t cluster_map) {
     if (0 == k || 0 == n_routed_expert || 0 == n_token_per_cluster || k > 256) {
@@ -455,11 +456,11 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
     local_out_indices = local_out_value - n_token_per_cluster * k * DATA_SIZE_BYTES;
     local_token_index = local_out_indices - DATA_SIZE_BYTES;
     local_token_count = local_token_index - sizeof(ExpertOffset);
-    local_in_token_weighted = local_token_count - dim * DATA_SIZE_BYTES;
+    local_in_token = local_token_count - n_token_per_cluster * dim * DATA_SIZE_BYTES;
+    local_in_token_weighted = local_in_token - dim * DATA_SIZE_BYTES;
     local_sum =  local_in_token_weighted - DATA_SIZE_BYTES;
     n_tokens_per_expert = local_sum - n_routed_expert * DATA_SIZE_BYTES;
     local_const_1 = n_tokens_per_expert - SPATZ_VL * DATA_SIZE_BYTES;
-    local_in_token = local_const_1 - n_token_per_cluster * dim * DATA_SIZE_BYTES;
 
     uint16_t * n_tokens_per_expert_ptr = (uint16_t *)n_tokens_per_expert;
     // curr_token_count records the information of destination offsets in HBM when processing current tokens in this cluster
@@ -702,18 +703,23 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
         // calculate HBM offset of each expert's token buffer
         // tokens evenly distributed to all west HBM nodes
         if (1 == core_id) {
-            expert_offset->token_cnt[0] = n_tokens_per_expert_ptr[0];
             expert_offset->value_offset[0] = base_out_token_offset;
             expert_offset->index_offset[0] = base_out_index_offset;
             for (int i = 1; i < n_routed_expert; i++) {
-                expert_offset->token_cnt[i] = n_tokens_per_expert_ptr[i];
                 if (n_tokens_per_expert_ptr[i - 1] != 0) {
+                    expert_offset->token_cnt[i - 1] = (n_tokens_per_expert_ptr[i - 1] - 1) / n_cluster_activated + 1;
                     expert_offset->value_offset[i] = expert_offset->value_offset[i - 1] + ((n_tokens_per_expert_ptr[i - 1] - 1) / n_cluster_activated + 1) * dim * DATA_SIZE_BYTES;
                     expert_offset->index_offset[i] = expert_offset->index_offset[i - 1] + ((n_tokens_per_expert_ptr[i - 1] - 1) / n_cluster_activated + 1) * DATA_SIZE_BYTES;
                 } else {
+                    expert_offset->token_cnt[i - 1] = 0;
                     expert_offset->value_offset[i] = expert_offset->value_offset[i - 1];
                     expert_offset->index_offset[i] = expert_offset->index_offset[i - 1];
                 }
+            }
+            if (n_tokens_per_expert_ptr[n_routed_expert - 1] != 0) {
+                expert_offset->token_cnt[n_routed_expert - 1] = (n_tokens_per_expert_ptr[n_routed_expert - 1] - 1) / n_cluster_activated + 1;
+            } else {
+                expert_offset->token_cnt[n_routed_expert - 1] = 0;
             }
         }
         // load n_token_per_cluster tokens to TCDM
@@ -829,6 +835,8 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
         //     printf("[TOP_K] cluster %d\n", cluster_id);
         //     printf("[TOP_K] local_cluster_id = %d\n", local_cluster_id);
         // }
+        uint16_t *local_token_index_ptr = (uint16_t *)local(local_token_index);
+        *local_token_index_ptr = INDICE_NOT_USED;
         for (int i_expert = 0; i_expert < n_routed_expert; i_expert++) {
             // if (0 == core_id) {
             //     printf("[TOP_K] i_expert = %d\n", i_expert);
@@ -836,11 +844,10 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
             // }
             // check if the token buffer is full
             while ((0 != n_tokens_per_expert_ptr[i_expert]) && (curr_token_count->curr_HBM_node[i_expert] != n_cluster_activated)) {
-                uint64_t value_dest_addr = expert_offset->value_offset[i_expert] + curr_token_count->value_offset[i_expert] * dim * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i_expert], 0);
-                uint64_t index_dest_addr = expert_offset->index_offset[i_expert] + curr_token_count->index_offset[i_expert] * DATA_SIZE_BYTES + hbm_west(curr_token_count->curr_HBM_node[i_expert], 0);
+                uint64_t value_dest_addr = hbm_west(curr_token_count->curr_HBM_node[i_expert], expert_offset->value_offset[i_expert] + curr_token_count->value_offset[i_expert] * dim * DATA_SIZE_BYTES);
+                uint64_t index_dest_addr = hbm_west(curr_token_count->curr_HBM_node[i_expert], expert_offset->index_offset[i_expert] + curr_token_count->index_offset[i_expert] * DATA_SIZE_BYTES);
                 if (flex_is_dm_core()) {
-                    uint16_t *local_token_index_ptr = (uint16_t *)local(local_token_index);
-                    *local_token_index_ptr = INDICE_NOT_USED;
+                    // TODO: value transfer can be ignored
                     flex_dma_async_1d(value_dest_addr, zomem(0), dim * DATA_SIZE_BYTES);
                     flex_dma_async_1d(index_dest_addr, local(local_token_index), DATA_SIZE_BYTES);
                     flex_dma_async_wait_all();
@@ -850,7 +857,7 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
                     curr_token_count->value_offset[i_expert] += 1;
                     curr_token_count->index_offset[i_expert] += 1;
                     // compare with token buffer size of i_expert
-                    if ((curr_token_count->value_offset[i_expert] >= ((n_tokens_per_expert_ptr[i_expert] - 1) / n_cluster_activated + 1))) {
+                    if ((curr_token_count->value_offset[i_expert] >= expert_offset->token_cnt[i_expert])) {
                         curr_token_count->value_offset[i_expert] = 0;
                         curr_token_count->index_offset[i_expert] = 0;
                         // move to next HBM node
@@ -884,7 +891,7 @@ void top_k_weighted_permute(const uint16_t dim, const uint16_t k, const uint16_t
  * @param expert_offset offsets pointing to different experts from the base offset of permuted tokens 
  * @param cluster_map activated clusters
  */
-void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n_token_per_cluster, uint64_t out_offset, uint64_t base_token_offset, uint64_t base_index_offset, ExpertOffset *expert_offset, cluster_map_t cluster_map) {
+void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n_token_per_cluster, uint64_t out_offset, uint64_t base_token_offset, uint64_t base_index_offset, ExpertOffset* expert_offset, cluster_map_t cluster_map) {
     if (0 == expert_offset) {
         return;
     }
@@ -901,6 +908,24 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
     local_index_1 = local_index_0 - DATA_SIZE_BYTES;
     local_out = local_index_1 - n_token_per_cluster * dim * DATA_SIZE_BYTES;
     
+    // check input parameters
+    // if ((0 == core_id) && (0 == cluster_id)) {
+    //     printf("[UNPERMUTE_SUM] dim = %d\n", dim);
+    //     printf("[UNPERMUTE_SUM] n_expert = %d\n", n_expert);
+    //     printf("[UNPERMUTE_SUM] n_token_per_cluster = %d\n", n_token_per_cluster);
+    //     printf("[UNPERMUTE_SUM] out_offset = 0x%x\n", out_offset);
+    //     printf("[UNPERMUTE_SUM] base_token_offset = 0x%x\n", base_token_offset);
+    //     printf("[UNPERMUTE_SUM] base_index_offset = 0x%x\n", base_index_offset);
+    //     // expert_offset
+    //     for (int i = 0; i < n_expert; i++) {
+    //         printf("[UNPERMUTE_SUM] expert_offset->curr_HBM_node[%d] = 0x%x\n", i, expert_offset->curr_HBM_node[i]);
+    //         printf("[UNPERMUTE_SUM] expert_offset->token_cnt[%d] = 0x%x\n", i, expert_offset->token_cnt[i]);
+    //         printf("[UNPERMUTE_SUM] expert_offset->value_offset[%d] = 0x%x\n", i, expert_offset->value_offset[i]);
+    //         printf("[UNPERMUTE_SUM] expert_offset->index_offset[%d] = 0x%x\n", i, expert_offset->index_offset[i]);
+    //     }
+    //     printf("[UNPERMUTE_SUM] cluster_map = 0x%x\n", cluster_map);
+    // }
+    // flex_global_barrier_xy();
     for (int i = 0; i < ARCH_NUM_CLUSTER; i++) {
         if ((cluster_map & (0x01 << i)) != 0) {
             n_cluster_activated += 1;
@@ -916,8 +941,11 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
 
         // clear local_out
         if (flex_is_dm_core()) {
-            flex_dma_async_1d(local(local_out), zomem(0), n_token_per_cluster * dim * DATA_SIZE_BYTES);
-            flex_dma_async_wait_all();
+            for (int i = 0; i < (n_token_per_cluster * dim * DATA_SIZE_BYTES - 1) / ARCH_CLUSTER_ZOMEM_SIZE + 1; i++) {
+                // consider the size limit of zomem
+                flex_dma_async_1d(local(local_out + i * ARCH_CLUSTER_ZOMEM_SIZE), zomem(0), min(ARCH_CLUSTER_ZOMEM_SIZE, (n_token_per_cluster * dim * DATA_SIZE_BYTES - i * ARCH_CLUSTER_ZOMEM_SIZE)));
+                flex_dma_async_wait_all();
+            }
         }
         flex_intra_cluster_sync();
         uint16_t i_expert, i_token, index;
@@ -929,7 +957,10 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
         while (i_expert < n_expert) {
             expert_offset->curr_HBM_node[i_expert] = 0;
             i_token = 0;
-            while (expert_offset->curr_HBM_node[i_expert] != n_cluster_activated) {
+            // if (0 == core_id && PRINT_DEBUG_CLUSTER_ID == local_cluster_id) {
+            //     printf("[UNPERMUTE_SUM] i_expert = %d\n", i_expert);
+            // }
+            while ((0 != expert_offset->token_cnt[i_expert]) && (expert_offset->curr_HBM_node[i_expert] != n_cluster_activated)) {
                 if (1 == is_buffer_0) {
                     local_token = local_token_0;
                     local_index = local_index_0;
@@ -942,9 +973,18 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
                     flex_dma_async_1d(local(local_index), hbm_west(expert_offset->curr_HBM_node[i_expert], expert_offset->index_offset[i_expert] + i_token * DATA_SIZE_BYTES), DATA_SIZE_BYTES);
                     flex_dma_async_wait_all();
                 }
+                flex_intra_cluster_sync();
                 // check if token belong to local token of this cluster
                 index = *(uint16_t *)local_index;
-                if ((index >= (local_cluster_id * n_token_per_cluster)) && (index < ((local_cluster_id + 1) * n_token_per_cluster))) {
+                // if (0 == core_id && PRINT_DEBUG_CLUSTER_ID == local_cluster_id) {
+                //     printf("[UNPERMUTE_SUM] index = %d\n", index);
+                //     printf("[UNPERMUTE_SUM] i_token = %d\n", i_token);
+                //     printf("[UNPERMUTE_SUM] expert_offset->curr_HBM_node[%d] = %d\n", i_expert, expert_offset->curr_HBM_node[i_expert]);
+                // }
+                if ((index != INDICE_NOT_USED) && (index >= (local_cluster_id * n_token_per_cluster)) && (index < ((local_cluster_id + 1) * n_token_per_cluster))) {
+                    // if (0 == core_id && PRINT_DEBUG_CLUSTER_ID == local_cluster_id) {
+                    //     printf("[UNPERMUTE_SUM] index = %d is local token\n", index);
+                    // }
                     is_local_token = 1;
                 } else {
                     is_local_token = 0;
@@ -963,10 +1003,13 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
     
                 // accumulate with previous value
                 if ((0 == core_id) && (1 == is_local_token)) {
+                    // if (index == 0) {
+                    //     printf("[UNPERMUTE_SUM] index = 0###\n");
+                    // }
                     uint16_t index_local = index - local_cluster_id * n_token_per_cluster;
                     uint16_t * local_in1_ptr = (uint16_t *)local(local_token);
-                    uint16_t * local_in2_ptr = (uint16_t *)local(local_out + index_local + dim * DATA_SIZE_BYTES);
-                    uint16_t * local_out_ptr = (uint16_t *)local(local_out + index_local + dim * DATA_SIZE_BYTES);
+                    uint16_t * local_in2_ptr = (uint16_t *)local(local_out + index_local * dim * DATA_SIZE_BYTES);
+                    uint16_t * local_out_ptr = (uint16_t *)local(local_out + index_local * dim * DATA_SIZE_BYTES);
                     
                     // compute element-wise operation with spatz core
                     uint16_t vl;
@@ -988,17 +1031,29 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
                 }
                        
                 is_buffer_0 = ~is_buffer_0;
-                i_token++;
-                if (i_token >= expert_offset->token_cnt[i_expert]) {
-                    i_token = 0;
-                    expert_offset->curr_HBM_node[i_expert] += 1;
+                i_token += 1;
+                // only update with one core
+                if (flex_is_dm_core()) {
+                    if (i_token >= expert_offset->token_cnt[i_expert]) {
+                        i_token = 0;
+                        expert_offset->curr_HBM_node[i_expert] += 1;
+                    }
                 }
             }
+            flex_intra_cluster_sync();
             i_expert++;
         }
         // store back
         flex_intra_cluster_sync();
         if (flex_is_dm_core()) {
+            // if (PRINT_DEBUG_CLUSTER_ID == local_cluster_id) {
+            //     // print
+            //     for (int i = 0; i < 5; i++) {
+            //         for (int j = 0; j < 8; j++) {
+            //             printf("[UNPERMUTE_SUM] local_out[%d][%d] = 0x%x\n", i, j, ((fp16 *)local(local_out))[i * dim + j]);
+            //         }
+            //     }
+            // }
             flex_dma_async_1d(hbm_west(local_cluster_id, out_offset), local(local_out), n_token_per_cluster * dim * DATA_SIZE_BYTES);
             flex_dma_async_wait_all();
         }
@@ -1692,13 +1747,13 @@ void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint6
     local_expert_offset = local_token_offset + n_token * n_routed_experts * DATA_SIZE_BYTES;
     uint64_t *local_token_offset_ptr = &local_token_offset;
     uint64_t hbm_token_offset, hbm_index_offset;
-    hbm_index_offset = actual_out_offset + ((n_token * dim - 1) / ARCH_NUM_CLUSTER_Y + 1) * dim * DATA_SIZE_BYTES;
-    hbm_token_offset = hbm_index_offset + ((n_token * dim - 1) / ARCH_NUM_CLUSTER_Y + 1) * DATA_SIZE_BYTES;
+    hbm_index_offset = actual_out_offset + ((n_token - 1) / ARCH_NUM_CLUSTER_Y + 1) * dim * DATA_SIZE_BYTES;
+    hbm_token_offset = hbm_index_offset + ((n_token - 1) / ARCH_NUM_CLUSTER_Y + 1) * DATA_SIZE_BYTES;
     // ExpertOffset expert_offset;
 
     uint16_t n_token_per_cluster = GEMM_TILE_WIDTH_M;
     // gate processes SEQ_LEN tokens at one time 
-    for (int i_token = 0; i_token < n_token; i_token += SEQ_LEN) {
+    for (uint64_t i_token = 0; i_token < n_token; i_token += SEQ_LEN) {
         // TODO: no write back, result stored in clusters' TCDM
         // the computation of all clusters should cover the whole output matrix at once? Otherwise, require store back
         // gemm_systolic_wise(SEQ_LEN, dim, n_routed_experts, DATA_SIZE_BYTES, GEMM_TILE_WIDTH_M, GEMM_TILE_WIDTH_N, GEMM_TILE_WIDTH_K, local_token_offset_ptr);
@@ -1708,10 +1763,8 @@ void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint6
         }
         flex_global_barrier_xy();
         top_k_weighted_permute(dim, n_activated_experts, n_routed_experts, n_token_per_cluster, local(local_token_offset), in_token_offset, hbm_token_offset, hbm_index_offset, (ExpertOffset *)local_expert_offset, cluster_west_edge);
-        // flex_global_barrier_xy();
-        // sigmoid(local(local_token_offset), local(local_token_offset), n_activated_experts, n_token_per_cluster, cluster_all);
         flex_global_barrier_xy();
-        // unpermute_sum(dim, n_routed_experts, n_token_per_cluster, actual_out_offset + (i_token / ARCH_NUM_CLUSTER_Y) * dim * DATA_SIZE_BYTES, hbm_token_offset, hbm_index_offset, (ExpertOffset *)local_expert_offset, cluster_west_edge);
+        unpermute_sum(dim, n_routed_experts, n_token_per_cluster, actual_out_offset + (i_token / ARCH_NUM_CLUSTER_Y) * dim * DATA_SIZE_BYTES, hbm_token_offset, hbm_index_offset, (ExpertOffset *)local_expert_offset, cluster_west_edge);
         flex_global_barrier_xy();
     }
 }
