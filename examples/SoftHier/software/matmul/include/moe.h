@@ -1,3 +1,7 @@
+/*
+Deprecated
+*/
+
 #ifndef MOE_H
 #define MOE_H
 
