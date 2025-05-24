@@ -2,10 +2,21 @@
 #define UTILS_DECODE_H
 
 /*
-NAIVE IMPLEMENTATION: enable CENTRALIZED_MOE, disable all others
-CLUSTER COLORING+DATA REDISTRIBUTION: disable all
-+SPATZ VECTORIZATION: enable SPATZ_ENABLE, disable all others
-+SYNCHRONIZATION REDUCTION: enable SPATZ_ENABLE, SYNC_REDUCE, disable all others
+NAIVE IMPLEMENTATION: 
+enable CENTRALIZED_MOE, disable all others
+#include "moe_decode_centralized.h" in main.c
+
+CLUSTER COLORING+DATA REDISTRIBUTION: 
+disable all
+#include "moe_decode.h" in main.c
+
++SPATZ VECTORIZATION: 
+enable SPATZ_ENABLE, disable all others
+#include "moe_decode.h" in main.c
+
++SYNCHRONIZATION REDUCTION: 
+enable SPATZ_ENABLE, SYNC_REDUCE, disable all others
+#include "moe_decode.h" in main.c
 */
 
 // #define CENTRALIZED_MOE
