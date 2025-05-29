@@ -41,8 +41,10 @@ enable SPATZ_ENABLE, SYNC_REDUCE, disable all others
 #define TILE_WIDTH_GATE 256
 // used for w1 and w3
 #define TILE_WIDTH_EXPERT_0 256
+// #define TILE_WIDTH_EXPERT_0 64
 // used for w2
 #define TILE_WIDTH_EXPERT_1 448
+// #define TILE_WIDTH_EXPERT_1 64
 // Parameter for element-wise functions
 #define ELEMENT_WISE_TILE_WIDTH 16
 #define SPATZ_VL 256
