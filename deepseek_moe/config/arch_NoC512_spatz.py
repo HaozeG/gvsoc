@@ -43,8 +43,8 @@ class FlexClusterArch:
 
         #Spatz Vector Unit
         self.spatz_attaced_core_list = [0]
-        self.spatz_num_vlsu_port     = 8
-        self.spatz_num_function_unit = 8
+        self.spatz_num_vlsu_port     = 4
+        self.spatz_num_function_unit = 1
 
         #RedMule
         self.redmule_ce_height       = 128
@@ -61,7 +61,7 @@ class FlexClusterArch:
 
         #HBM
         self.hbm_start_base          = 0xc0000000
-        self.hbm_node_addr_space     = 0x04000000
+        self.hbm_node_addr_space     = 0x08000000
         self.num_node_per_ctrl       = 1
         self.hbm_chan_placement      = [4,0,0,4]
 

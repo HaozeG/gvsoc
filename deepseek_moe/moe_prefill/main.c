@@ -6,7 +6,7 @@
 #include "flex_dma_pattern.h"
 // #include "moe.h"
 // #include "moe_decode_centralized.h"
-#include "moe_prefill.h"
+#include "prefill_gemm.h"
 // #define PRINT_DEBUG 0
 
 int main();
@@ -220,47 +220,25 @@ int main(){
     // gemm_systolic_wise(hbm_addr(in_token_offset), hbm_addr(test_weights_offset), hbm_addr(test_out_offset), n_token, inter_dim, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_0, TILE_WIDTH_EXPERT_1, hbm_addr(test_bias_offset), 1);
 
     // GEMM total execution time estimation
+    gemm_systolic_wise(n_token, n_routed_experts, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_GATE, TILE_WIDTH_EXPERT_1, zomem(0));
+
     uint16_t i_expert;
     fp16 w_expert;
     int i = 0;
     uint64_t temp_token_offset, actual_out_offset;
     uint64_t token_per_gemm = n_token / 4;
     while (i < (n_activated_experts + n_shared_experts)) {
-        // load expert weights and indices 
-        // if (i < n_activated_experts) {
-        //     i_expert = ((uint16_t *)local(top_k_indices_tcdm))[i];
-        //     w_expert = ((fp16 *)local(top_k_weights_tcdm))[i];
-        // } else {
-        //     i_expert = i - n_activated_experts + n_routed_experts;
-        //     w_expert = 0x3c00; // 1.0
-        // }
-        // temp_token_offset = i_expert * dim * DATA_SIZE_BYTES;
-        // if (0 == flex_get_cluster_id() && flex_is_first_core()) {
-        //     printf("[ROUTED EXPERTS] expert_id = %d, expert_weight = 0x%04x\n", i_expert, w_expert);
-        // }
-        // flex_global_barrier_xy();
-        mul_op(&w_expert, &route_scale, &w_expert);
         // w1.forward(x)
-        gemm_systolic_wise(hbm_addr(in_token_offset), hbm_addr(test_weights_offset), hbm_addr(test_out_offset), n_token, inter_dim, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_0, TILE_WIDTH_EXPERT_1, hbm_addr(test_bias_offset), 0);
+        gemm_systolic_wise(token_per_gemm, inter_dim, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_0, TILE_WIDTH_EXPERT_1, hbm_addr(test_bias_offset));
         // w3.forward(x)
-        gemm_systolic_wise(hbm_addr(in_token_offset), hbm_addr(test_weights_offset), hbm_addr(test_out_offset), n_token, inter_dim, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_0, TILE_WIDTH_EXPERT_1, hbm_addr(test_bias_offset), 0);
+        gemm_systolic_wise(token_per_gemm, inter_dim, dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_0, TILE_WIDTH_EXPERT_1, hbm_addr(test_bias_offset));
 
         i++;
     }
     flex_global_barrier_xy();
     i = 0;
     while (i < (n_activated_experts + n_shared_experts)) {
-        // load expert weights and indices 
-        // if (i < n_activated_experts) {
-        //     i_expert = ((uint16_t *)local(top_k_indices_tcdm))[i];
-        //     w_expert = ((fp16 *)local(top_k_weights_tcdm))[i];
-        // } else {
-        //     i_expert = i - n_activated_experts + n_routed_experts;
-        //     w_expert = 0x3c00; // 1.0
-        // }
-        // temp_token_offset = i_expert * dim * DATA_SIZE_BYTES;
-        // w2.forward(silu(w1.forward(x)) * w3.forward(x))
-        gemm_systolic_wise(hbm_addr(in_token_offset), hbm_addr(test_weights_offset), hbm_addr(test_out_offset), n_token, dim, inter_dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_1, TILE_WIDTH_EXPERT_0, hbm_addr(test_bias_offset), 0);
+        gemm_systolic_wise(token_per_gemm, dim, inter_dim, DATA_SIZE_BYTES, TILE_WIDTH_TOKENS, TILE_WIDTH_EXPERT_1, TILE_WIDTH_EXPERT_0, hbm_addr(test_bias_offset));
 
         i++;
     }

@@ -43,8 +43,8 @@ class FlexClusterArch:
 
         #Spatz Vector Unit
         self.spatz_attaced_core_list = []
-        self.spatz_num_vlsu_port     = 8
-        self.spatz_num_function_unit = 8
+        self.spatz_num_vlsu_port     = 4
+        self.spatz_num_function_unit = 1
 
         #RedMule
         self.redmule_ce_height       = 128
