@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>, Ho Tin Hung <hohung@student.ethz.ch>
+
 #include <math.h>
 #include <inttypes.h>
 #include "flex_runtime.h"
@@ -5,9 +7,9 @@
 #include "flex_printf.h"
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
-// #include "moe.h"
 // #include "moe_decode_centralized.h"
 #include "moe_decode.h"
+// #include "moe_prefill.h"
 // #define PRINT_DEBUG 0
 
 int main();
@@ -16,7 +18,11 @@ int main(){
     flex_global_barrier_xy();
 
     // Parameters below follows the configuration of MoE model used in preload
+    #ifdef MOE_PREFILL_H
+    uint64_t n_token = 512;
+    #else
     uint64_t n_token = 1;
+    #endif
     // uint16_t dim = 1024;
     uint64_t dim = 7168;
     // uint16_t inter_dim = 512;
@@ -46,16 +52,16 @@ int main(){
      */
     // Read the value preloaded into HBM
 #ifdef MOE_DECODE_CENTRALIZED_H
-    uint32_t in_token_offset =            0;
-    uint32_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
-    uint32_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
-    uint32_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
-    uint32_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
-    uint32_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    uint64_t in_token_offset =            0;
+    uint64_t gate_weights_offset =        in_token_offset + n_token * dim * DATA_SIZE_BYTES;
+    uint64_t expert_w1_weights_offset =   gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
+    uint64_t expert_w1_bias_offset =      expert_w1_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint64_t expert_w2_weights_offset =   expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint64_t expert_w2_bias_offset =      expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint64_t expert_w3_weights_offset =   expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint64_t expert_w3_bias_offset =      expert_w3_weights_offset + dim * (n_routed_experts + n_shared_experts) * inter_dim * DATA_SIZE_BYTES;
+    uint64_t actual_out_offset =          expert_w3_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES;
+    uint64_t golden_out_offset =          actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
 #endif
 
 #ifdef MOE_DECODE_H
@@ -91,6 +97,20 @@ int main(){
     uint64_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES;
     uint64_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES;
     uint64_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES;
+    #endif
+#ifdef MOE_PREFILL_H
+    uint64_t expert_w1_weights_offset = 0;
+    uint64_t expert_w1_bias_offset = expert_w1_weights_offset + (dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y);
+    uint64_t expert_w3_weights_offset = 0;
+    uint64_t expert_w3_bias_offset = expert_w3_weights_offset + dim * inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_X;
+
+    uint64_t expert_w2_weights_offset = expert_w1_bias_offset + inter_dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t expert_w2_bias_offset = expert_w2_weights_offset + inter_dim * dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t gate_weights_offset = expert_w2_bias_offset + dim * (n_routed_experts + n_shared_experts) * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    // in_token, actual_out, golden_out distributed among west HBM nodes
+    uint64_t in_token_offset = gate_weights_offset + dim * n_routed_experts * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t actual_out_offset = in_token_offset + n_token * dim * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
+    uint64_t golden_out_offset = actual_out_offset + n_token * dim * DATA_SIZE_BYTES / ARCH_NUM_CLUSTER_Y;
 #endif
 
 #ifdef PRINT_DEBUG
@@ -111,22 +131,49 @@ int main(){
         printf("inter_dim: %d\n", (uint32_t)inter_dim);
         printf("n_routed_experts: %d\n", (uint32_t)n_routed_experts);
     }
-    
+    // if (flex_is_dm_core() && flex_get_cluster_id() == 0){
+    //     uint64_t offset = (uint64_t)ARCH_HBM_NODE_ADDR_SPACE * (2 * ARCH_NUM_CLUSTER_Y + ARCH_NUM_CLUSTER_X + 1);
+    //     uint32_t expert_w1_weights_tcdm = 0;
+    //     for (int i = 0; i < 16; i++) {
+    //         for (int j = 0; j < inter_dim / 4; j++) {
+    //             ((uint16_t *)(local(expert_w1_weights_tcdm)))[j + i * inter_dim / 4] = (uint16_t)0x3c00 + j * 4;
+    //         }
+    //     }
+    //     flex_dma_async_1d( hbm_addr(expert_w1_weights_offset) + offset, local(expert_w1_weights_tcdm), dim * inter_dim * DATA_SIZE_BYTES / 4);
+    //     flex_dma_async_wait_all();
+    // }
     // First element of each matrix
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
-        // ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 0 * dim] = (uint16_t)0x3c00;
-        // ((uint16_t *)(hbm_addr(in_token_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
-        // ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 0 * dim] = (uint16_t)0x4000;
-        // ((uint16_t *)(hbm_addr(gate_weights_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
-        // ((uint16_t *)(hbm_addr(gate_weights_offset)))[2 + 0 * dim] = (uint16_t)0x4000;
-        // ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 1 * n_routed_experts] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[10 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 0 * dim] = (uint16_t)0x4000;
+        ((uint16_t *)(hbm_addr(gate_weights_offset)))[1 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(gate_weights_offset)))[2 + 0 * dim] = (uint16_t)0x4000;
+        ((uint16_t *)(hbm_addr(gate_weights_offset)))[0 + 1 * n_routed_experts] = (uint16_t)0x3c00;
         // for (int i = 0; i < dim; i++) {
-        //     ((uint16_t *)(hbm_addr(in_token_offset)))[i] = (uint16_t)0x211F;
-        // }
+        for (int i = 0; i < 128; i++) {
+            for (int j = 0; j < 16; j++) {
+                ((uint16_t *)(hbm_addr(expert_w1_weights_offset)))[j + i * dim] = (uint16_t)0x3c00;
+            }
+        }
+        ((uint16_t *)(hbm_addr(in_token_offset)))[3 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[32 + 0 * dim] = (uint16_t)0x3c00;
+        ((uint16_t *)(hbm_addr(in_token_offset)))[0 + 2 * dim] = (uint16_t)0x3c00;
         // for (int i = 0; i < n_routed_experts; i++) {
-        //     for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < dim/8; j++) {
         //         ((uint16_t *)(hbm_addr(gate_weights_offset)))[j + i * dim] = (uint16_t)0x4000;
+        //     }
+        // }
+
+        // for (int i = 0; i < dim; i++) {
+        //     for (int j = 0; j < inter_dim/4; j++) {
+        //         ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim] = (uint16_t)0x3c00;
+        //     }
+        // }
+        // for (int i = 0; i < inter_dim; i++) {
+        //     for (int j = 0; j < dim/8; j++) {
+        //         ((uint16_t *)(hbm_addr(expert_w2_weights_offset)))[j + i * inter_dim] = (uint16_t)0x3c00;
         //     }
         // }
 
@@ -137,6 +184,7 @@ int main(){
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 16; j++) {
+                uint16_t * in_token_ptr = (uint16_t *)(hbm_addr(in_token_offset));
                 printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(in_token_offset) + (j + i * dim) * DATA_SIZE_BYTES));
             }
             printf("\n");
@@ -180,36 +228,36 @@ int main(){
             #endif
         }
         printf("\n");
-        printf("expert_w3_weights:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < inter_dim; j++) {
-            for (int j = 0; j < 16; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(expert_w3_weights_offset) + (j + i * inter_dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }
-        printf("actual_out:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 32; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }
-        printf("golden_out:\n");
-        for (int i = 0; i < n_token; i++) {
-            printf("    ");
-            // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 16; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(golden_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
-            }
-            printf("\n");
-        }        
+        // printf("expert_w3_weights:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < inter_dim; j++) {
+        //     for (int j = 0; j < 16; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(expert_w3_weights_offset)))[j + i * inter_dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(expert_w3_weights_offset) + (j + i * inter_dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
+        // printf("actual_out:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 32; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
+        // printf("golden_out:\n");
+        // for (int i = 0; i < n_token; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 16; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(golden_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(golden_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }        
     }
 #endif
 
@@ -219,21 +267,19 @@ int main(){
         flex_timer_start();
     }
     flex_global_barrier_xy();
-#ifdef MOE_H
-    // if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
-    //     printf("[Start MoE Computation]\n");
-    // }
-    // compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
-    top_k((in_token_offset), (actual_out_offset), (actual_out_offset + DATA_SIZE_BYTES * n_activated_experts), n_activated_experts, n_routed_experts, n_token);
-#endif
 
 #ifdef MOE_DECODE_CENTRALIZED_H
     compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
-    cluster_map_t activated_cluster;
+    // cluster_map_t activated_cluster;
+    // activated_cluster = 0xFFFF;
+    // silu(hbm_addr(in_token_offset), hbm_addr(actual_out_offset), inter_dim, 1, activated_cluster);
+    // fp16 in_const = 0x3c00;
+    // dot_product_const(hbm_addr(in_token_offset), in_const, hbm_addr(actual_out_offset), dim, n_token, activated_cluster);
+    // add(hbm_addr(in_token_offset), hbm_addr(gate_weights_offset), hbm_addr(actual_out_offset), dim, n_token, activated_cluster);
     // activated_cluster = 0x5A5A;
-    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w1_bias_offset), activated_cluster);
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w1_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w1_bias_offset), activated_cluster, TILE_WIDTH_EXPERT_0);
     // activated_cluster = 0xA5A5;
-    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w3_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w3_bias_offset), activated_cluster);
+    // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w3_weights_offset), hbm_addr(actual_out_offset), dim, 1, inter_dim, hbm_addr(expert_w3_bias_offset), activated_cluster, TILE_WIDTH_EXPERT_0);
     // activated_cluster = 0xFFFF;
     // gemv(hbm_addr(in_token_offset), hbm_addr(expert_w2_weights_offset), hbm_addr(actual_out_offset), inter_dim, 1, dim, hbm_addr(expert_w2_bias_offset), activated_cluster);
 #endif
@@ -273,6 +319,9 @@ int main(){
     //     printf("0x%04x * 0x%04x = 0x%04x\n", in1, in2, out);
     // }
 #endif
+#ifdef MOE_PREFILL_H
+    compute_moe(in_token_offset, n_token, dim, inter_dim, n_routed_experts, n_shared_experts, n_activated_experts, gate_weights_offset, expert_w1_weights_offset, expert_w1_bias_offset, expert_w2_weights_offset, expert_w2_bias_offset, expert_w3_weights_offset, expert_w3_bias_offset, actual_out_offset);
+#endif
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         flex_timer_end();
@@ -280,16 +329,32 @@ int main(){
     
 #ifdef PRINT_DEBUG
     // get the output
+    uint64_t out_buffer = 0;
+    if (flex_is_dm_core() && (0 == flex_get_cluster_id())) {
+        flex_dma_async_1d(local(out_buffer), hbm_west((uint64_t)0, actual_out_offset), n_token / ARCH_NUM_CLUSTER_Y * dim * DATA_SIZE_BYTES);
+        flex_dma_async_wait_all();
+    }
+    flex_intra_cluster_sync();
     if (flex_is_first_core() && (flex_get_cluster_id()==0))
     {
         printf("[Check Results]\n");
+        // printf("actual_out:\n");
+        // // for (int i = 0; i < (n_token >> 2)*n_routed_experts; i++) {
+        // for (int i = 0; i < 3; i++) {
+        //     printf("    ");
+        //     // for (int j = 0; j < dim; j++) {
+        //     for (int j = 0; j < 32; j++) {
+        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
+        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+        //     }
+        //     printf("\n");
+        // }
         printf("actual_out:\n");
-        for (int i = 0; i < n_token; i++) {
+        for (int i = 0; i < 16; i++) {
             printf("    ");
             // for (int j = 0; j < dim; j++) {
             for (int j = 0; j < 32; j++) {
-                // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
-                printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
+                printf("0x%04x ", ((uint16_t *)(out_buffer))[j + i * dim]);
             }
             printf("\n");
         }
