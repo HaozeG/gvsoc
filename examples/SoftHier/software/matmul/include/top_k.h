@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@ethz.ch>
+
 #ifndef TOP_K_H
 #define TOP_K_H
 

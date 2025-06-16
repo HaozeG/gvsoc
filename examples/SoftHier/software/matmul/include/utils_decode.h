@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@ethz.ch>
+
 #ifndef UTILS_DECODE_H
 #define UTILS_DECODE_H
 

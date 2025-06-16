@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>
+
 #ifndef MOE_DECODE_H
 #define MOE_DECODE_H
 
@@ -129,7 +131,7 @@ void compute_moe(uint64_t in_token_addr, uint64_t n_token, uint64_t dim, uint64_
         gemv(hbm_addr(temp_token_0 + temp_token_offset), hbm_addr(expert_w2_weights_addr + (inter_dim * dim * i_expert * DATA_SIZE_BYTES) / 8), hbm_addr(temp_token_0 + temp_token_offset), inter_dim, n_token, dim, hbm_addr(expert_w2_bias_addr + (dim * i_expert * DATA_SIZE_BYTES) / 8), cluster_all, TILE_WIDTH_EXPERT_1);
         
         // NOTE: regulate the data traffic? this global barrier increases utilization
-        flex_global_barrier_xy();
+        // flex_global_barrier_xy();
         // multiply by gate weight and add to the output
         dot_product_const(hbm_addr(temp_token_0 + temp_token_offset), w_expert, hbm_addr(temp_token_0 + temp_token_offset), dim, n_token, cluster_all);
         add(hbm_addr(temp_token_0 + temp_token_offset), hbm_addr(actual_out_addr), hbm_addr(actual_out_addr), dim, n_token, cluster_all);

@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>
+
 #ifndef MOE_DECODE_CENTRALIZED_H
 #define MOE_DECODE_CENTRALIZED_H
 

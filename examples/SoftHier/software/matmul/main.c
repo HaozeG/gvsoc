@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>, Ho Tin Hung <hohung@student.ethz.ch>
+
 #include <math.h>
 #include <inttypes.h>
 #include "flex_runtime.h"
@@ -6,8 +8,8 @@
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
 // #include "moe_decode_centralized.h"
-// #include "moe_decode.h"
-#include "moe_prefill.h"
+#include "moe_decode.h"
+// #include "moe_prefill.h"
 // #define PRINT_DEBUG 0
 
 int main();

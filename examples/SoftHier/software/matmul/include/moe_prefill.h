@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@ethz.ch>
+
 #ifndef MOE_PREFILL_H
 #define MOE_PREFILL_H
 
@@ -671,6 +673,7 @@ void unpermute_sum(const uint16_t dim, const uint16_t n_expert, const uint16_t n
     }
 }
 
+// TODO: incomplete implementation, only for testing
 void compute_moe(uint64_t in_token_offset, uint64_t n_token, uint64_t dim, uint64_t inter_dim, uint64_t n_routed_experts, uint64_t n_shared_experts, uint64_t n_activated_experts, uint64_t gate_weights_addr, uint64_t expert_w1_weights_addr, uint64_t expert_w1_bias_addr, uint64_t expert_w2_weights_addr, uint64_t expert_w2_bias_addr, uint64_t expert_w3_weights_addr, uint64_t expert_w3_bias_addr, uint64_t actual_out_offset) {
     cluster_map_t cluster_coloring_0, cluster_coloring_1, cluster_all, cluster_west_edge;
     cluster_coloring_0 = 0x5A5A;    // 0101101001011010: 1 3 4 6 9 11 12 14

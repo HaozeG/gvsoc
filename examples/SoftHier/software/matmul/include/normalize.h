@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@ethz.ch>
+
 #ifndef NORMALIZE_H
 #define NORMALIZE_H
 

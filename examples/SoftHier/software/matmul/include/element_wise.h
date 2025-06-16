@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>
+
 #ifndef ELEMENT_WISE_H
 #define ELEMENT_WISE_H
 

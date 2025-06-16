@@ -1,3 +1,5 @@
+// Author: Haoze Gao <gaohao@student.ethz.ch>
+
 #ifndef GEMV_H
 #define GEMV_H
 
