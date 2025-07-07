@@ -1,13 +1,15 @@
 diff --git a/pulp/floonoc/floonoc.cpp b/pulp/floonoc/floonoc.cpp
-index 668a863..7599501 100644
+index 668a863..5146e08 100644
 --- a/pulp/floonoc/floonoc.cpp
 +++ b/pulp/floonoc/floonoc.cpp
-@@ -36,6 +36,14 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
+@@ -36,6 +36,16 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
      this->dim_x = get_js_config()->get_int("dim_x");
      this->dim_y = get_js_config()->get_int("dim_y");
      this->router_input_queue_size = get_js_config()->get_int("router_input_queue_size");
 +    this->atomics = get_js_config()->get_int("atomics");
 +    this->collective = get_js_config()->get_int("collective");
++    this->edge_node_alias = get_js_config()->get_int("edge_node_alias");
++    this->edge_node_alias_start_bit = get_js_config()->get_int("edge_node_alias_start_bit");
 +    this->interleave_enable = get_js_config()->get_int("interleave_enable");
 +    this->interleave_region_base = get_js_config()->get_int("interleave_region_base");
 +    this->interleave_region_size = get_js_config()->get_int("interleave_region_size");
@@ -17,7 +19,7 @@ index 668a863..7599501 100644
  
      // Reserve the array for the target. We may have one target at each node.
      this->targets.resize(this->dim_x * this->dim_y);
-@@ -71,7 +79,7 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
+@@ -71,7 +81,7 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
              // this array indexed by the position
              this->targets[this->entries[id].y * this->dim_x + this->entries[id].x] = itf;
  
@@ -26,7 +28,7 @@ index 668a863..7599501 100644
                  mapping.first.c_str(), this->entries[id].base, this->entries[id].size, this->entries[id].x, this->entries[id].y);
  
              id++;
-@@ -117,10 +125,25 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
+@@ -117,10 +127,25 @@ FlooNoc::FlooNoc(vp::ComponentConf &config)
  // - When a router gets a synchronous response
  // - When an interface receives a call to the response callback
  // In both cases, the requests is accounted on the initiator burst, in the network interface
@@ -54,7 +56,7 @@ index 668a863..7599501 100644
  }
  
  
-@@ -196,3 +219,115 @@ extern "C" vp::Component *gv_new(vp::ComponentConf &config)
+@@ -196,3 +221,115 @@ extern "C" vp::Component *gv_new(vp::ComponentConf &config)
  {
      return new FlooNoc(config);
  }
@@ -171,7 +173,7 @@ index 668a863..7599501 100644
 +    }
 +}
 diff --git a/pulp/floonoc/floonoc.hpp b/pulp/floonoc/floonoc.hpp
-index 644696a..595cb1b 100644
+index 644696a..4c675ac 100644
 --- a/pulp/floonoc/floonoc.hpp
 +++ b/pulp/floonoc/floonoc.hpp
 @@ -95,7 +95,15 @@ public:
@@ -191,7 +193,7 @@ index 644696a..595cb1b 100644
  
      // The following constants gives the index in the queue array of the queue associated to each direction
      static constexpr int DIR_RIGHT = 0;
-@@ -104,10 +112,36 @@ public:
+@@ -104,10 +112,40 @@ public:
      static constexpr int DIR_DOWN = 3;
      static constexpr int DIR_LOCAL = 4;
  
@@ -212,6 +214,10 @@ index 644696a..595cb1b 100644
 +    // Whether Support Collective
 +    bool collective;
 +
++    // Whether Support HBM node aliasing
++    uint64_t edge_node_alias;
++    uint64_t edge_node_alias_start_bit;
++
 +    // Whether Support Interleaving
 +    uint64_t interleave_enable;
 +    uint64_t interleave_region_base;
@@ -228,7 +234,7 @@ index 644696a..595cb1b 100644
  private:
      // Callback called when a target request is asynchronously granted after a denied error was
      // reported
-@@ -121,10 +155,6 @@ private:
+@@ -121,10 +159,6 @@ private:
      // Set of memory-mapped entries, with one for each target. They give information about each
      // target (base address, size, position)
      std::vector<Entry> entries;
@@ -240,20 +246,21 @@ index 644696a..595cb1b 100644
      // output queue of the sender.
      int router_input_queue_size;
 diff --git a/pulp/floonoc/floonoc.py b/pulp/floonoc/floonoc.py
-index 2aa365c..d19cea8 100644
+index 2aa365c..8c0dbb1 100644
 --- a/pulp/floonoc/floonoc.py
 +++ b/pulp/floonoc/floonoc.py
-@@ -47,7 +47,8 @@ class FlooNoc2dMesh(gvsoc.systree.Component):
+@@ -47,7 +47,9 @@ class FlooNoc2dMesh(gvsoc.systree.Component):
          before the source output queue is stalled.
      """
      def __init__(self, parent: gvsoc.systree.Component, name, width: int,
 -            dim_x: int, dim_y:int, ni_outstanding_reqs: int=8, router_input_queue_size: int=2):
 +            dim_x: int, dim_y:int, ni_outstanding_reqs: int=8, router_input_queue_size: int=2, atomics: int=0, collective: int=0,
++            edge_node_alias: int=0, edge_node_alias_start_bit: int=48,
 +            interleave_enable: int=0, interleave_region_base: int=0, interleave_region_size: int=0, interleave_granularity: int=0, interleave_bit_start: int=0, interleave_bit_width: int=0):
          super(FlooNoc2dMesh, self).__init__(parent, name)
  
          self.add_sources([
-@@ -64,6 +65,14 @@ class FlooNoc2dMesh(gvsoc.systree.Component):
+@@ -64,6 +66,16 @@ class FlooNoc2dMesh(gvsoc.systree.Component):
          self.add_property('dim_x', dim_x)
          self.add_property('dim_y', dim_y)
          self.add_property('router_input_queue_size', router_input_queue_size)
@@ -265,11 +272,13 @@ index 2aa365c..d19cea8 100644
 +        self.add_property('interleave_granularity', interleave_granularity)
 +        self.add_property('interleave_bit_start', interleave_bit_start)
 +        self.add_property('interleave_bit_width', interleave_bit_width)
++        self.add_property('edge_node_alias', edge_node_alias)
++        self.add_property('edge_node_alias_start_bit', edge_node_alias_start_bit)
  
      def __add_mapping(self, name: str, base: int, size: int, x: int, y: int):
          self.get_property('mappings')[name] =  {'base': base, 'size': size, 'x': x, 'y': y}
 diff --git a/pulp/floonoc/floonoc_network_interface.cpp b/pulp/floonoc/floonoc_network_interface.cpp
-index 4124c25..fe66071 100644
+index 4124c25..08e15ad 100644
 --- a/pulp/floonoc/floonoc_network_interface.cpp
 +++ b/pulp/floonoc/floonoc_network_interface.cpp
 @@ -90,7 +90,7 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
@@ -281,10 +290,51 @@ index 4124c25..fe66071 100644
                  burst, burst->get_addr(), burst->get_size(), burst->get_is_write());
  
              // By default, we consider the whole burst as valid. In one of the burst request is\
-@@ -111,6 +111,18 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+@@ -111,6 +111,59 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
          // Get base from current burst
          uint64_t base = _this->pending_burst_base;
  
++        // We apply the HBM node aliasing
++        if (_this->noc->edge_node_alias > 1)
++        {
++            Entry *test_entry = _this->noc->get_entry(base, 1);
++            if (test_entry == NULL) _this->trace.fatal("[NoC Edge Alias] Cannot find entry for base 0x%llx \n",base);
++            if (test_entry->x == 0)
++            {
++                //west edge
++                uint64_t node_id = _this->y - 1;
++                uint64_t alias_offset = 1;
++                alias_offset = alias_offset << _this->noc->edge_node_alias_start_bit;
++                base += alias_offset * (node_id % _this->noc->edge_node_alias);
++                _this->trace.msg(vp::Trace::LEVEL_DEBUG, "[NoC Edge Alias] West edge node %d alias to 0x%llx \n", node_id, base);
++            } else if (test_entry->x == _this->noc->dim_x - 1)
++            {
++                //east edge
++                uint64_t node_id = _this->y - 1;
++                uint64_t alias_offset = 1;
++                alias_offset = alias_offset << _this->noc->edge_node_alias_start_bit;
++                base += alias_offset * (node_id % _this->noc->edge_node_alias);
++                _this->trace.msg(vp::Trace::LEVEL_DEBUG, "[NoC Edge Alias] East edge node %d alias to 0x%llx \n", node_id, base);
++            } else if (test_entry->y == 0)
++            {
++                //south edge
++                uint64_t node_id = _this->x - 1;
++                uint64_t alias_offset = 1;
++                alias_offset = alias_offset << _this->noc->edge_node_alias_start_bit;
++                base += alias_offset * (node_id % _this->noc->edge_node_alias);
++                _this->trace.msg(vp::Trace::LEVEL_DEBUG, "[NoC Edge Alias] South edge node %d alias to 0x%llx \n", node_id, base);
++            } else if (test_entry->y == _this->noc->dim_y - 1)
++            {
++                //north edge
++                uint64_t node_id = _this->x - 1;
++                uint64_t alias_offset = 1;
++                alias_offset = alias_offset << _this->noc->edge_node_alias_start_bit;
++                base += alias_offset * (node_id % _this->noc->edge_node_alias);
++                _this->trace.msg(vp::Trace::LEVEL_DEBUG, "[NoC Edge Alias] North edge node %d alias to 0x%llx \n", node_id, base);
++            }
++
++        }
++
 +        //If support interleaving
 +        if (_this->noc->interleave_enable && base >= _this->noc->interleave_region_base && base < _this->noc->interleave_region_base + _this->noc->interleave_region_size)
 +        {
@@ -300,7 +350,7 @@ index 4124c25..fe66071 100644
          // Size must be at max the noc width to respect the bandwidth
          uint64_t size = std::min(_this->noc->width, _this->pending_burst_size);
          // And must not cross a page to fall into one target
-@@ -130,6 +142,32 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+@@ -130,6 +183,32 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
          req->set_size(size);
          req->set_data(_this->pending_burst_data);
          req->set_is_write(burst->get_is_write());
@@ -333,7 +383,7 @@ index 4124c25..fe66071 100644
  
          // Get the target entry corresponding to the current base
          Entry *entry = _this->noc->get_entry(base, size);
-@@ -137,7 +175,7 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+@@ -137,7 +216,7 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
          {
              // If any request of the burst is invalid because no target was found, make the whole
              // burst invalid.
@@ -342,7 +392,7 @@ index 4124c25..fe66071 100644
                  base, size);
              burst->status = vp::IO_REQ_INVALID;
  
-@@ -171,11 +209,13 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+@@ -171,11 +250,13 @@ void NetworkInterface::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
              req->set_addr(base - entry->base);
              *req->arg_get(FlooNoc::REQ_DEST_X) = (void *)(long)entry->x;
              *req->arg_get(FlooNoc::REQ_DEST_Y) = (void *)(long)entry->y;
@@ -358,7 +408,7 @@ index 4124c25..fe66071 100644
  
              // Noe that the router may not grant tje request if its input queue is full.
              // In this case we must stall the network interface
-@@ -232,7 +272,7 @@ vp::IoReqStatus NetworkInterface::req(vp::Block *__this, vp::IoReq *req)
+@@ -232,7 +313,7 @@ vp::IoReqStatus NetworkInterface::req(vp::Block *__this, vp::IoReq *req)
      uint8_t *data = req->get_data();
      uint64_t size = req->get_size();
  
@@ -761,19 +811,93 @@ index e455f21..b369dd2 100644
 +    void collective_generate(vp::IoReq * req, std::queue<int> * queue, int router_x, int router_y);
  };
 diff --git a/pulp/idma/be/idma_be.cpp b/pulp/idma/be/idma_be.cpp
-index 4e3a273..28a5ef4 100644
+index 4e3a273..b82eab5 100644
 --- a/pulp/idma/be/idma_be.cpp
 +++ b/pulp/idma/be/idma_be.cpp
-@@ -59,7 +59,7 @@ IdmaBeConsumer *IDmaBe::get_be_consumer(uint64_t base, uint64_t size, bool is_re
+@@ -27,7 +27,8 @@ IDmaBe::IDmaBe(vp::Component *idma, IdmaTransferProducer *me,
+     IdmaBeConsumer *loc_be_read, IdmaBeConsumer *loc_be_write,
+     IdmaBeConsumer *ext_be_read, IdmaBeConsumer *ext_be_write)
+ :   Block(idma, "be"),
+-    fsm_event(this, &IDmaBe::fsm_handler)
++    fsm_event(this, &IDmaBe::fsm_handler),
++    transfer_regulation_event(this, &IDmaBe::transfer_regulation_handler)
+ {
+     // Middle-end and backend protocols will be used later for interaction
+     this->me = me;
+@@ -59,23 +60,55 @@ IdmaBeConsumer *IDmaBe::get_be_consumer(uint64_t base, uint64_t size, bool is_re
  // no active transfer
  void IDmaBe::enqueue_transfer(IdmaTransfer *transfer)
  {
 -    this->trace.msg(vp::Trace::LEVEL_TRACE, "Queueing burst (burst: %p, src: 0x%x, dst: 0x%x, size: 0x%x)\n",
-+    this->trace.msg(vp::Trace::LEVEL_TRACE, "Queueing burst (burst: %p, src: 0x%llx, dst: 0x%llx, size: 0x%x)\n",
-         transfer, transfer->src, transfer->dst, transfer->size);
+-        transfer, transfer->src, transfer->dst, transfer->size);
+-
+-    // Push the transfer into the queue, we will need it later when the bursts are coming back
+-    // from memory. We will remove it from the queue when the transfer is fully done
+-    this->transfer_queue.push(transfer);
+-
+-    // Extract information abouth the transfer
+-    this->current_transfer = transfer;
+-    this->current_transfer_size = transfer->size;
+-    transfer->ack_size = transfer->size;
+-    this->current_transfer_src = transfer->src;
+-    this->current_transfer_dst = transfer->dst;
+-    this->current_transfer_src_be = this->get_be_consumer(transfer->src, transfer->size, true);
+-    this->current_transfer_dst_be = this->get_be_consumer(transfer->dst, transfer->size, false);
+-
+-    this->fsm_event.enqueue();
++    this->trace.msg(vp::Trace::LEVEL_TRACE, "Queueing burst (burst: %p, src: 0x%llx, dst: 0x%llx, size: 0x%x) | regulation_queue depth = %d\n",
++        transfer, transfer->src, transfer->dst, transfer->size,  this->regulation_queue.size());
++
++    this->regulation_queue.push(transfer);
++    this->transfer_regulation_event.enqueue();
++}
++
++void IDmaBe::transfer_regulation_handler(vp::Block *__this, vp::ClockEvent *event)
++{
++    IDmaBe *_this = (IDmaBe *)__this;
++
++    _this->trace.msg(vp::Trace::LEVEL_TRACE, "[transfer_regulation_handler] invoke\n");
++
++    if (!_this->regulation_queue.empty())
++    {
++        IdmaTransfer *wait_txn = _this->regulation_queue.front();
++        IdmaBeConsumer *wait_txn_src_be = _this->get_be_consumer(wait_txn->src, wait_txn->size, true);
++
++        if (!_this->transfer_ack_queue.empty() && (_this->current_transfer_src_be != wait_txn_src_be))
++        {
++            _this->trace.msg(vp::Trace::LEVEL_TRACE, "[transfer_regulation_handler] Src Conflict\n");
++            return;
++        }
++
++         _this->trace.msg(vp::Trace::LEVEL_TRACE, "[transfer_regulation_handler] Forward Transfer\n");
++
++        // Push the transfer into the queue, we will need it later when the bursts are coming back
++        // from memory. We will remove it from the queue when the transfer is fully done
++        IdmaTransfer *transfer = wait_txn;
++        _this->regulation_queue.pop();
++        _this->transfer_queue.push(transfer);
++        _this->transfer_ack_queue.push(transfer);
++
++        // Extract information abouth the transfer
++        _this->current_transfer = transfer;
++        _this->current_transfer_size = transfer->size;
++        transfer->ack_size = transfer->size;
++        _this->current_transfer_src = transfer->src;
++        _this->current_transfer_dst = transfer->dst;
++        _this->current_transfer_src_be = _this->get_be_consumer(transfer->src, transfer->size, true);
++        _this->current_transfer_dst_be = _this->get_be_consumer(transfer->dst, transfer->size, false);
++
++        _this->fsm_event.enqueue();
++
++        if (!_this->regulation_queue.empty())
++        {
++            _this->transfer_regulation_event.enqueue();
++        }
++    }
+ }
  
-     // Push the transfer into the queue, we will need it later when the bursts are coming back
-@@ -85,6 +85,22 @@ bool IDmaBe::can_accept_transfer()
+ 
+@@ -85,6 +118,22 @@ bool IDmaBe::can_accept_transfer()
      return this->current_transfer_size == 0;
  }
  
@@ -796,8 +920,52 @@ index 4e3a273..28a5ef4 100644
  
  
  void IDmaBe::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+@@ -142,7 +191,7 @@ void IDmaBe::fsm_handler(vp::Block *__this, vp::ClockEvent *event)
+ void IDmaBe::update()
+ {
+     // Check if any action should be taken in the next cycle from the FSM handler
+-    this->fsm_event.enqueue();
++    this->transfer_regulation_event.enqueue();
+ }
+ 
+ 
+@@ -169,6 +218,11 @@ void IDmaBe::write_data(uint8_t *data, uint64_t size)
+     transfer->dst += size;
+     transfer->size -= size;
+ 
++    if (transfer->size == 0)
++    {
++        this->transfer_queue.pop();
++    }
++
+     // And forward data.
+     // Note that the source backend already checked that the destination was ready by calling
+     // our is_ready_to_accept_data method
+@@ -181,7 +235,7 @@ void IDmaBe::write_data(uint8_t *data, uint64_t size)
+ void IDmaBe::ack_data(uint8_t *data, int size)
+ {
+     // Get the source backend protocol for the first transfer
+-    IdmaTransfer *transfer = this->transfer_queue.front();
++    IdmaTransfer *transfer = this->transfer_ack_queue.front();
+     IdmaBeConsumer *src_be = this->get_be_consumer(transfer->src, transfer->size, true);
+ 
+     // And acknowledge the data to it so that the data can be freed
+@@ -199,8 +253,12 @@ void IDmaBe::ack_data(uint8_t *data, int size)
+         this->trace.msg(vp::Trace::LEVEL_TRACE, "Finished burst (transfer: %p)\n", transfer);
+ 
+         // And if so, remove it and notify the middle end
+-        this->transfer_queue.pop();
++        this->transfer_ack_queue.pop();
+         this->me->ack_transfer(transfer);
++        if (this->transfer_ack_queue.empty())
++        {
++            this->transfer_regulation_event.enqueue();
++        }
+     }
+ }
+ 
 diff --git a/pulp/idma/be/idma_be.hpp b/pulp/idma/be/idma_be.hpp
-index 4e2d730..7d30880 100644
+index 4e2d730..782dafd 100644
 --- a/pulp/idma/be/idma_be.hpp
 +++ b/pulp/idma/be/idma_be.hpp
 @@ -185,6 +185,15 @@ public:
@@ -816,7 +984,7 @@ index 4e2d730..7d30880 100644
  };
  
  
-@@ -221,6 +230,11 @@ public:
+@@ -221,10 +230,16 @@ public:
      bool is_ready_to_accept_data() override;
      void write_data(uint8_t *data, uint64_t size) override;
      void ack_data(uint8_t *data, int size) override;
@@ -828,6 +996,29 @@ index 4e2d730..7d30880 100644
  
  private:
      // FSM handler, called to check if any action should be taken after something was updated
+     static void fsm_handler(vp::Block *__this, vp::ClockEvent *event);
++    static void transfer_regulation_handler(vp::Block *__this, vp::ClockEvent *event);
+     // Returne backend protocol corresponding to the specified range
+     IdmaBeConsumer *get_be_consumer(uint64_t base, uint64_t size, bool is_read);
+     // Pointer to middle-end, used to interact with it
+@@ -233,6 +248,7 @@ private:
+     vp::Trace trace;
+     // Block FSM event, used to trigger all checks after something has been updated
+     vp::ClockEvent fsm_event;
++    vp::ClockEvent transfer_regulation_event;
+     // Current transfer being processed. This transfer is kept active until all bursts
+     // have been delegated to backend protocols.
+     IdmaTransfer *current_transfer;
+@@ -253,7 +269,9 @@ private:
+     IdmaBeConsumer *current_transfer_dst_be;
+     // Queue of pending transfers, whose bursts have already been sent. They need to be kept
+     // since we need transfer information when bursts are back from memory
++    std::queue<IdmaTransfer *> regulation_queue;
+     std::queue<IdmaTransfer *> transfer_queue;
++    std::queue<IdmaTransfer *> transfer_ack_queue;
+     // Backend for local area
+     IdmaBeConsumer *loc_be_read;
+     IdmaBeConsumer *loc_be_write;
 diff --git a/pulp/idma/be/idma_be_axi.cpp b/pulp/idma/be/idma_be_axi.cpp
 index 149cb7f..1f5fa9c 100644
 --- a/pulp/idma/be/idma_be_axi.cpp
@@ -1287,10 +1478,10 @@ index 673529f..080f26f 100644
  #include <vp/vp.hpp>
  #include <vp/itf/io.hpp>
 diff --git a/pulp/snitch/snitch_core.py b/pulp/snitch/snitch_core.py
-index 0bda5e4..5bc2d97 100644
+index 0bda5e4..896bb54 100644
 --- a/pulp/snitch/snitch_core.py
 +++ b/pulp/snitch/snitch_core.py
-@@ -86,20 +86,27 @@ class Snitch(cpu.iss.riscv.RiscvCommon):
+@@ -86,20 +86,28 @@ class Snitch(cpu.iss.riscv.RiscvCommon):
      def __init__(self,
              parent,
              name,
@@ -1303,6 +1494,7 @@ index 0bda5e4..5bc2d97 100644
              inc_spatz: bool=False,
 +            spatz_num_vlsu: int=4,
 +            spatz_num_fpu: int=4,
++            spatz_vlsu_bw: int=32,
              core_id: int=0,
              htif: bool=False):
  
@@ -1321,13 +1513,14 @@ index 0bda5e4..5bc2d97 100644
              add_latencies(isa_instance)
              isa_instances[isa] = isa_instance
  
-@@ -146,17 +153,23 @@ class Snitch(cpu.iss.riscv.RiscvCommon):
+@@ -146,17 +154,24 @@ class Snitch(cpu.iss.riscv.RiscvCommon):
              self.add_sources([
                  "cpu/iss/src/spatz.cpp",
              ])
 +            self.add_c_flags(['-DCONFIG_GVSOC_ISS_INC_SPATZ=1'])
 +            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_VLSU={spatz_num_vlsu}'])
 +            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_FPU={spatz_num_fpu}'])
++            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_VLSU_BW={spatz_vlsu_bw}'])
  
      def o_BARRIER_REQ(self, itf: gvsoc.systree.SlaveItf):
          self.itf_bind('barrier_req', itf, signature='wire<bool>')
@@ -1346,7 +1539,7 @@ index 0bda5e4..5bc2d97 100644
              misa: int=None,
              binaries: list=[],
              fetch_enable: bool=False,
-@@ -197,19 +210,26 @@ class Snitch_fp_ss(cpu.iss.riscv.RiscvCommon):
+@@ -197,19 +212,27 @@ class Snitch_fp_ss(cpu.iss.riscv.RiscvCommon):
      def __init__(self,
              parent,
              name,
@@ -1359,6 +1552,7 @@ index 0bda5e4..5bc2d97 100644
              inc_spatz: bool=False,
 +            spatz_num_vlsu: int=4,
 +            spatz_num_fpu: int=4,
++            spatz_vlsu_bw: int=32,
              core_id: int=0,
              timed: bool=False,
              htif: bool=False):
@@ -1377,17 +1571,18 @@ index 0bda5e4..5bc2d97 100644
  
          add_latencies(isa_instance)
  
-@@ -254,6 +274,9 @@ class Snitch_fp_ss(cpu.iss.riscv.RiscvCommon):
+@@ -254,6 +277,10 @@ class Snitch_fp_ss(cpu.iss.riscv.RiscvCommon):
              self.add_sources([
                  "cpu/iss/src/spatz.cpp",
              ])
 +            self.add_c_flags(['-DCONFIG_GVSOC_ISS_INC_SPATZ=1'])
 +            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_VLSU={spatz_num_vlsu}'])
 +            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_FPU={spatz_num_fpu}'])
++            self.add_c_flags([f'-DCONFIG_GVSOC_ISS_SPATZ_VLSU_BW={spatz_vlsu_bw}'])
  
      def o_BARRIER_REQ(self, itf: gvsoc.systree.SlaveItf):
          self.itf_bind('barrier_req', itf, signature='wire<bool>')
-@@ -266,7 +289,7 @@ class Spatz(cpu.iss.riscv.RiscvCommon):
+@@ -266,7 +293,7 @@ class Spatz(cpu.iss.riscv.RiscvCommon):
      def __init__(self,
              parent,
              name,

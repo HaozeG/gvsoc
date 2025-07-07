@@ -1,8 +1,6 @@
 #include "flex_runtime.h"
-#include "spatz_check.h"
-#include "spatz_indexed_check.h"
-#include "spatz_fp8_check.h"
-#include "spatz_custom_isa.h"
+// #include "hello_world.h"
+#include "MLA_decode_MHA.h"
 #include <math.h>
 
 int main()
@@ -14,10 +12,15 @@ int main()
     /*  Program Execution Region -- Start */
     /**************************************/
 
-    test_spatz();
-    test_spatz_indexed();
-    test_spatz_fp8();
-    test_spatz_isa();
+    MLA_Decode_MHA(
+        hbm_west(0,0)/*MetaQ_base_address*/,
+        hbm_south(0,0)/*CKVR_base_address*/,
+        hbm_west(0,0)/*Output_base_address*/,
+        8/*speculative_length*/,
+        1024/*kv_sequence_length*/,
+        8/*batch_size*/,
+        2/*elem_size*/);
+
     /**************************************/
     /*  Program Execution Region -- Stop  */
     /**************************************/
