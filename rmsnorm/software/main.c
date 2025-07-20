@@ -9,20 +9,54 @@
 #include "flex_dma_pattern.h"
 
 #include "rmsnorm.h"
-// #define PRINT_DEBUG 0
 
 int main();
 int main(){
     flex_barrier_xy_init();
     flex_global_barrier_xy();
 
+    uint32_t eoc_val = 0;
     // TODO: read parameters from command line or configuration file
-    uint32_t n_token = 16;
+    uint32_t n_token = 4;
     // uint16_t dim = 1024;
-    uint64_t dim = 7168;
+    uint16_t dim = 13; // feature dimension
+    fp16 dim_fp16 = float_to_fp16((float)dim);
     uint32_t input_offset = 0x00000000; // TCDM offset for input data
 
-    uint32_t eoc_val = 0;
+    uint32_t tile_size_dim = (dim - 1) / ARCH_NUM_CLUSTER + 1; // ideal tile size along dim
+    uint32_t actual_tile_size_dim = max(min(tile_size_dim, dim - flex_get_cluster_id() * tile_size_dim), 0);
+    // assign initial values to input data
+    if (flex_is_dm_core()) {
+        uint16_t * local_in_ptr = (uint16_t *)local(input_offset);
+        #ifdef PRINT_DEBUG
+        if (flex_get_cluster_id() == 0) {
+            printf("[Input Data Initialization]\n");
+        }
+        #endif
+        for (int i = 0; i < n_token; i++) {
+            #ifdef PRINT_DEBUG
+            if (flex_get_cluster_id() == 0) {
+                printf("    ");
+            }
+            #endif
+            for (int j = 0; j < actual_tile_size_dim; j++) {
+                // TODO: initial values to be determined
+                local_in_ptr[j + i * actual_tile_size_dim] = 0x3c00;
+                #ifdef PRINT_DEBUG
+                if (flex_get_cluster_id() == 0) {
+                    printf("0x%04x ", local_in_ptr[j + i * actual_tile_size_dim]);
+                }
+                #endif
+            }
+            #ifdef PRINT_DEBUG
+            if (flex_get_cluster_id() == 0) {
+                printf("\n");
+            }
+            #endif
+        }
+    }
+    flex_global_barrier_xy();
+
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
         printf("[Start RMSNorm Computation]\n");
         flex_timer_start();
@@ -30,7 +64,7 @@ int main(){
     flex_global_barrier_xy();
 
     // call compute function
-    compute_rmsnorm(input_offset, n_token, dim);
+    compute_rmsnorm(input_offset, n_token, dim_fp16, dim);
 
     flex_global_barrier_xy();
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) {
@@ -38,33 +72,15 @@ int main(){
     }
     
 #ifdef PRINT_DEBUG
-    // get the output
-    uint64_t out_buffer = 0;
-    if (flex_is_dm_core() && (0 == flex_get_cluster_id())) {
-        flex_dma_async_1d(local(out_buffer), hbm_west((uint64_t)0, actual_out_offset), n_token / ARCH_NUM_CLUSTER_Y * dim * DATA_SIZE_BYTES);
-        flex_dma_async_wait_all();
-    }
-    flex_intra_cluster_sync();
-    if (flex_is_first_core() && (flex_get_cluster_id()==0))
+    // get the output data
+    if (flex_is_first_core() && (flex_get_cluster_id() == 0))
     {
         printf("[Check Results]\n");
-        // printf("actual_out:\n");
-        // // for (int i = 0; i < (n_token >> 2)*n_routed_experts; i++) {
-        // for (int i = 0; i < 3; i++) {
-        //     printf("    ");
-        //     // for (int j = 0; j < dim; j++) {
-        //     for (int j = 0; j < 32; j++) {
-        //         // printf("0x%04x ", ((uint16_t *)(hbm_addr(actual_out_offset)))[j + i * dim]);
-        //         printf("0x%04x ", (uint16_t)*(uint64_t *)(hbm_addr(actual_out_offset) + (j + i * dim) * DATA_SIZE_BYTES));
-        //     }
-        //     printf("\n");
-        // }
-        printf("actual_out:\n");
-        for (int i = 0; i < 16; i++) {
+        for (int i = 0; i < n_token; i++) {
             printf("    ");
-            // for (int j = 0; j < dim; j++) {
-            for (int j = 0; j < 32; j++) {
-                printf("0x%04x ", ((uint16_t *)(out_buffer))[j + i * dim]);
+            // for (int j = 0; j < actual_tile_size_dim; j++) {
+            for (int j = 0; j < min(32, actual_tile_size_dim); j++) {
+                printf("0x%04x ", ((uint16_t *)(input_offset))[j + i * actual_tile_size_dim]);
             }
             printf("\n");
         }

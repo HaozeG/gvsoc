@@ -32,6 +32,7 @@ enable SPATZ_ENABLE, SYNC_REDUCE, disable all others
 #include "flex_dma_pattern.h"
 #include "flex_group_barrier.h"
 
+#define PRINT_DEBUG 0
 // use float16 as data type
 #define DTYPE fp16
 #define DATA_SIZE_BYTES 2
@@ -62,6 +63,10 @@ fp16 route_scale = (fp16)0x4100;
 
 int32_t min(int32_t a, int32_t b) {
     return (a < b) ? a : b;
+}
+
+int32_t max(int32_t a, int32_t b) {
+    return (a > b) ? a : b;
 }
 
 void print64(uint64_t input) {
