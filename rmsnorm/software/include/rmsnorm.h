@@ -1,7 +1,7 @@
 #ifndef RMSNORM_H
 #define RMSNORM_H
 
-#define HW_SYNC
+// #define HW_SYNC
 
 #include "element_wise.h"
 
@@ -11,6 +11,10 @@
 #include "flex_cluster_arch.h"
 #include "flex_dma_pattern.h"
 
+// for software reduction
+void reduction_init(RMSNormInfo *info);
+void reduction_get_next_hop(RMSNormInfo *info);
+void reduction_update_state(RMSNormInfo *info);
 
 void compute_rmsnorm(
     uint64_t in_token_offset, 
@@ -44,7 +48,10 @@ void compute_rmsnorm(
     // determine work for each cluster
     // suppose dim is large enough, only consider parallel processing along dim, not n_token
     uint32_t tile_size_dim = (dim - 1) / ARCH_NUM_CLUSTER + 1; // ideal tile size along dim
+    FlexPosition pos = get_pos(cluster_id);
     RMSNormInfo info;
+    info.cluster_id_x = pos.x;
+    info.cluster_id_y = pos.y;
     info.in_offset = in_offset;
     info.tile_size_dim = max(min(tile_size_dim, dim - cluster_id * tile_size_dim), 0);  // actual tile size along dim
     info.tile_size_n_token = n_token;
@@ -150,12 +157,71 @@ void compute_rmsnorm(
         flex_global_barrier_xy();
     #else
         // use software reduction
-    
+        // reduced sum is stored at local_sum of cluster 0
+        reduction_init(&info);
+        flex_intra_cluster_sync();
+        while (!info.is_finished) {
+            reduction_get_next_hop(&info);
+            // transfer partial sum to next hop
+            if (info.is_compute) {
+                if (flex_is_dm_core()) {
+                    FlexPosition src_pos = pos;
+                    if (info.next_hop_direction == 0) {
+                        // left 
+                        src_pos.x = min(src_pos.x + info.next_hop_offset, ARCH_NUM_CLUSTER_X - 1);
+                        flex_dma_async_1d(local_temp, remote_pos(src_pos, local_sum), info.tile_size_n_token * DATA_SIZE_BYTES);
+                    } else if (info.next_hop_direction == 3) {
+                        // down 
+                        src_pos.y = min(src_pos.y + info.next_hop_offset, ARCH_NUM_CLUSTER_Y - 1);
+                        flex_dma_async_1d(local_temp, remote_pos(src_pos, local_sum), info.tile_size_n_token * DATA_SIZE_BYTES);
+                    } else {
+                        // not used 
+                    }
+                    #ifdef PRINT_DEBUG
+                    if (cluster_id == 0) {
+                        printf("[Reduction] Transfer from Cluster at Position (%d, %d) to Cluster at Position (%d, %d)\n", 
+                            info.next_hop_direction == 0 ? (pos.x + info.next_hop_offset) : pos.x,
+                            info.next_hop_direction == 3 ? (pos.y + info.next_hop_offset) : pos.y, pos.x, pos.y);
+                    }
+                    #endif
+                    flex_dma_async_wait_all();
+                }
+                // make sure data is ready
+                flex_intra_cluster_sync();
+                // do local reduction
+                if (0 == core_id && info.is_compute) {
+                    uint16_t * local_in_ptr = (uint16_t *)local(local_temp);
+                    uint16_t * local_out_ptr = (uint16_t *)local(local_sum);
+                    
+                    // perform reduced sum with spatz core
+                    uint16_t vl;
+                    uint16_t i_token = 0;
+                    while (info.tile_size_n_token > i_token) {      
+                        asm volatile("vsetvli %0, %1, e16, m8, ta, ma" : "=r"(vl) : "r"(min(SPATZ_VL, info.tile_size_n_token - i_token)));
+                        asm volatile("vle16.v v0, (%0)" : : "r"(local_in_ptr));
+                        asm volatile("vle16.v v1, (%0)" : : "r"(local_out_ptr));
+                        asm volatile("vfadd.vv v1, v0, v1");
+                        asm volatile("vse16.v v1, (%0)" : : "r"(local_out_ptr));
+                        local_in_ptr += vl;
+                        local_out_ptr += vl;
+                        i_token += vl;
+                    }
+                }
+            }
+            reduction_update_state(&info);
+            #ifdef PRINT_DEBUG
+            if (cluster_id == 0 && core_id == 0 && info.is_finished == 0) {
+                printf("[Reduction] Updated: Iteration %d, Next Hop Direction %d\n", 
+                    info.iteration, info.next_hop_direction);
+            }
+            #endif
+            flex_global_barrier_xy();
+        }
     #endif
 
     // print global sum
     #ifdef PRINT_DEBUG
-    if (flex_is_first_core() && (cluster_id == 0))
+    if (flex_is_first_core() && (0 == cluster_id))
     {
         printf("[Global Sum]\n");
         uint16_t * local_out_ptr = (uint16_t *)local(local_sum);
@@ -168,7 +234,7 @@ void compute_rmsnorm(
     #endif
     
     // root & mean on sum
-    if (0 == core_id && cluster_id == 0) {
+    if (0 == core_id && 0 == cluster_id) {
         uint16_t * local_in_ptr = (uint16_t *)local(local_sum);
         uint16_t * local_out_ptr = (uint16_t *)local(local_sum);
         
@@ -212,6 +278,7 @@ void compute_rmsnorm(
             flex_dma_async_wait_all();
         }
     #else
+        // use software broadcast
 
     #endif
 
@@ -242,6 +309,92 @@ void compute_rmsnorm(
     }
     flex_intra_cluster_sync();
 }
+
+/*
+    The following functions are used for software reduction.
+*/
+void reduction_init(RMSNormInfo *info) {
+    info->is_finished = 0;
+    info->iteration = 0;
+    info->next_hop_direction = 0; // start with left
+    info->next_hop_offset = 0;
+    info->is_compute = 0;
+
+    #ifdef PRINT_DEBUG
+    if (flex_is_first_core() && (flex_get_cluster_id() == 0))
+    {
+        printf("[Reduction] Initialized: Iteration %d, Next Hop Direction %d\n", 
+            info->iteration, info->next_hop_direction);
+    }
+    #endif
+}
+
+void reduction_update_state(RMSNormInfo *info) {
+    info->iteration++;
+    if (info->next_hop_direction == 0) {
+        if (ARCH_NUM_CLUSTER_X <= (0b01 << info->iteration)) {
+            info->num_cluster_log2_x = info->iteration - 1;
+            info->next_hop_direction = 3; // down
+            info->iteration = 0; // reset iteration
+        }
+    } else if (info->next_hop_direction == 3) {
+        if (ARCH_NUM_CLUSTER_Y <= (0b01 << info->iteration)) {
+            info->num_cluster_log2_y = info->iteration - 1;
+            info->is_finished = 1; // finished
+            info->iteration = 0; // reset iteration
+        }
+    } else {
+        // not used in reduction
+    }
+}
+
+void reduction_get_next_hop(RMSNormInfo *info) {
+    if (info->is_finished) {
+        return;
+    }
+    // check if requires transfer
+    uint32_t pos;
+    if (info->next_hop_direction == 0) {
+        pos = info->cluster_id_x;
+    } else if (info->next_hop_direction == 3) {
+        pos = info->cluster_id_y;
+    } else {
+        // not used in reduction
+    }
+    // only the even position requires transfer
+    if (((pos & (0b01 << info->iteration)) == 0) && ((pos & 0b01) == 0)) {
+        // transfer required
+        info->next_hop_offset = (0b01 << info->iteration);
+        info->is_compute = 1;
+        // check if next hop is out of bound
+        if (info->next_hop_direction == 0) {
+            if (info->next_hop_offset + pos >= ARCH_NUM_CLUSTER_X) {
+                info->is_compute = 0; // no compute required
+            }
+        } else if (info->next_hop_direction == 3) {
+            if (info->next_hop_offset + pos >= ARCH_NUM_CLUSTER_Y) {
+                info->is_compute = 0; // no compute required
+            }
+        } else {
+            // not used in reduction
+        }
+    } else {
+        // no transfer required
+        info->next_hop_offset = 0;
+        info->is_compute = 0;
+    }
+}
+
+/*
+    The following functions are used for software broadcast.
+*/
+void broadcast_init(RMSNormInfo *info) {
+    info->is_finished = 0;
+    info->iteration = 0;
+    info->next_hop_direction = 0; // start with right
+    info->next_hop_offset = 0;
+}
+
 
 
 #endif 

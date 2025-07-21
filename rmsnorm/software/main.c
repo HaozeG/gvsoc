@@ -19,7 +19,7 @@ int main(){
     // TODO: read parameters from command line or configuration file
     uint32_t n_token = 4;
     // uint16_t dim = 1024;
-    uint16_t dim = 13; // feature dimension
+    uint16_t dim = 20; // feature dimension
     fp16 dim_fp16 = float_to_fp16((float)dim);
     uint32_t input_offset = 0x00000000; // TCDM offset for input data
 

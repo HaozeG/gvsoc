@@ -79,6 +79,17 @@ typedef struct RMSNormInfo {
     uint32_t tile_size_dim;     // number of dimensions in each tile
     uint32_t in_offset;         // offset of input data in TCDM
     uint32_t out_offset;        // offset of output data in TCDM
+    
+    uint32_t cluster_id_x, cluster_id_y; // cluster id in x and y direction
+
+    uint32_t num_cluster_log2_x, num_cluster_log2_y; // log2 of number of clusters in x and y direction
+
+    // for software reduction and broadcast
+    uint32_t is_finished;
+    uint32_t is_compute;
+    uint32_t iteration;
+    uint32_t next_hop_direction; // 0: left, 1: right, 2: up, 3: down
+    uint32_t next_hop_offset;
 } RMSNormInfo;
 
 #endif
