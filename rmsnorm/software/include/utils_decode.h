@@ -33,6 +33,7 @@ enable SPATZ_ENABLE, SYNC_REDUCE, disable all others
 #include "flex_group_barrier.h"
 
 #define PRINT_DEBUG 0
+#define PRINT_DEBUG_CLUSTER_ID 0
 // use float16 as data type
 #define DTYPE fp16
 #define DATA_SIZE_BYTES 2
@@ -86,7 +87,7 @@ typedef struct RMSNormInfo {
 
     // for software reduction and broadcast
     uint32_t is_finished;
-    uint32_t is_compute;
+    uint32_t is_operate;
     uint32_t iteration;
     uint32_t next_hop_direction; // 0: left, 1: right, 2: up, 3: down
     uint32_t next_hop_offset;
