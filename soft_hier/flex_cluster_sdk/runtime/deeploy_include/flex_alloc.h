@@ -15,68 +15,7 @@ Dynamic memory allocation based on linked list of free memory blocks
 #include <stdint.h>
 #include "flex_printf.h"
 #include "flex_cluster_arch.h"
-
-/*
-Desc: Free-memory-block indicator
-@var: (unit32_t)               size -- capacity of the free memory block (in bytes)
-@var: (struct alloc_block_s *) next -- pointer to the next free memory block
-*/
-typedef struct alloc_block_s {
-  uint32_t size;
-  struct alloc_block_s *next;
-} alloc_block_t;
-
-/*
-Desc: Allocator data structure
-@var: (alloc_block_t *) first block -- pointer to the first free memory block 
-*/
-typedef struct {
-  alloc_block_t *first_block;
-} alloc_t;
-
-
-/********************
-*  Initialization   *
-********************/
-
-// Initialize the first free-memory-block indicator, and set up the pointer in the allocator
-void flex_cluster_alloc_init(alloc_t *alloc, void *base, const uint32_t size);
-
-/***************
-*  Allocation  *
-***************/
-
-// Memory alllocation with programmer-specified allocator
-void *domain_malloc(alloc_t *alloc, const uint32_t size);
-
-// Memory allocation with default l1 heap allocator
-void *flex_l1_malloc(const uint32_t size);
-void *flex_hbm_malloc(const uint32_t size);
-
-
-/******************
-*  De-allocation  *
-******************/
-
-// De-allocation with programmer-specified allocator
-void domain_free(alloc_t *alloc, void *const ptr);
-
-// De-allocation with default l1 heap allocator
-void flex_l1_free(void *const ptr);
-void flex_hbm_free(void *const ptr);
-
-/*********************
-*  Helper functions  *
-*********************/
-
-// Return the address of the default l1 heap allocator
-alloc_t *flex_get_allocator_l1();
-alloc_t *flex_get_allocator_hbm();
-
-// [debug] print all free-memory-blocks in l1 heap
-void flex_dump_heap();
-
-
+#include "flex_runtime_api.h"
 
 /********************
 *  Implementations  *
@@ -88,18 +27,6 @@ void flex_dump_heap();
 // Alignment functions (size must be a power of 2)
 #define ALIGN_UP(addr, size) ((addr + size - 1) & ~(size - 1))
 #define ALIGN_DOWN(addr, size) (addr & ~(size - 1))
-
-// Allocator
-// TODO: currently placed at a selected address
-// bowwang: we can also pass this info from config file
-// #define ALLOC_L1 (0x00000000)
-
-// volatile alloc_t * alloc_l1 = (alloc_t *) 0x00000008;
-// volatile alloc_t * alloc_l1 = (alloc_t *) ALLOC_L1;
-volatile alloc_t alloc_l1 __attribute__((section(".l1_prio")));
-
-// bowwng: allocator for HBM
-volatile alloc_t alloc_hbm __attribute__((section(".hbm_prio")));
 
 
 /*
@@ -148,7 +75,63 @@ void flex_cluster_alloc_init(alloc_t *alloc, void *base, const uint32_t size) {
   return;
 }
 
+// Allocator
+// TODO: currently placed at a selected address
+// bowwang: we can also pass this info from config file
+// #define ALLOC_L1 (0x00000000)
 
+// volatile alloc_t * alloc_l1 = (alloc_t *) 0x00000008;
+// volatile alloc_t * alloc_l1 = (alloc_t *) ALLOC_L1;
+volatile alloc_t alloc_l1 __attribute__((section(".l1_prio")));
+
+// bowwng: allocator for HBM
+volatile alloc_t alloc_hbm __attribute__((section(".hbm_prio")));
+
+
+// Back-adaptation for other config fills to pass CI
+#ifndef ARCH_CLUSTER_HEAP_BASE
+#define ARCH_CLUSTER_HEAP_BASE (0x00000000)
+#define ARCH_CLUSTER_HEAP_END  (0x00000000)
+#endif
+
+/*
+ * Desc: cluster-private heap allocator initialization
+ */
+
+extern char __l1_heap_start[];
+extern char __hbm_heap_start[];
+
+void flex_alloc_init(){
+    uint32_t CID = flex_get_cluster_id();
+    // volatile uint32_t * heap_start      = (volatile uint32_t *) (ARCH_CLUSTER_HEAP_BASE + 0x1000);
+    volatile uint32_t * heap_start      = (volatile uint32_t *) __l1_heap_start;
+    volatile uint32_t * heap_end        = (volatile uint32_t *) ARCH_CLUSTER_HEAP_END;
+    volatile uint32_t   heap_size       = (uint32_t)heap_end - (uint32_t)heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_l1(), (void *)heap_start, heap_size);
+    }
+
+    // HBM allocator
+    uint32_t hbm_nodes = 4; // bowwang: hardcoded for now
+    volatile uint32_t * hbm_heap_start      = (volatile uint32_t *) __hbm_heap_start;
+    volatile uint32_t * hbm_heap_end        = (volatile uint32_t *) (ARCH_HBM_START_BASE + (ARCH_HBM_NODE_ADDR_SPACE * hbm_nodes));
+    volatile uint32_t   hbm_heap_size       = (uint32_t)hbm_heap_end - (uint32_t)hbm_heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_hbm(), (void *)hbm_heap_start, hbm_heap_size);
+    }
+
+    // allocation init summary
+    if (CID==0 && flex_is_first_core()){
+        printf("[Alloc] >>> L1  allocator:    0x%p\n", &alloc_l1);
+        printf("[Alloc] >>> L1  first block:  0x%p\n", (&alloc_l1)->first_block);
+        printf("[Alloc] >>> L1  heap start:   0x%p, size: 0x%x\n\n", heap_start, heap_size);
+        printf("[Alloc] >>> HBM allocator:    0x%p\n", &alloc_hbm);
+        printf("[Alloc] >>> HBM first block:  0x%p\n", (&alloc_hbm)->first_block);
+        printf("[Alloc] >>> HBM heap start:   0x%p, size: 0x%x\n\n", hbm_heap_start, hbm_heap_size);
+    }
+
+    return;
+}
 
 /***********************
 *  Memory Allocation   *

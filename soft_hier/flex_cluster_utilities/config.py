@@ -7,8 +7,8 @@ args = parser.parse_args()
 input_file = args.input_file
 
 # Read the input Python file
-C_header_file = 'soft_hier/flex_cluster_sdk/runtime/include/flex_cluster_arch.h'
-S_header_file = 'soft_hier/flex_cluster_sdk/runtime/include/flex_cluster_arch.inc'
+C_header_file = 'soft_hier/flex_cluster_sdk/runtime/deeploy_include/flex_cluster_arch.h'
+S_header_file = 'soft_hier/flex_cluster_sdk/runtime/deeploy_include/flex_cluster_arch.inc'
 
 # Initialize a dictionary to store the class attributes and their values
 attributes = {}
