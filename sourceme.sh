@@ -49,9 +49,6 @@ else
 fi
 
 # Check if "pyenv_softhier" folder exists; if not, create the virtual environment
-# pip install --upgrade pip
-# pip3 install -r requirements.txt
-
 if [ ! -d "pyenv_softhier" ]; then
     $PYTHON_CMD -m venv pyenv_softhier
     source pyenv_softhier/bin/activate

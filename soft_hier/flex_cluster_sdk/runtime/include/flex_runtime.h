@@ -12,11 +12,11 @@
 #define remote_cid(cid,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cid*ARCH_CLUSTER_TCDM_SIZE+offset)
 #define remote_xy(x,y,offset)       (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(x,y)*ARCH_CLUSTER_TCDM_SIZE+offset)
 #define remote_pos(pos,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(pos.x,pos.y)*ARCH_CLUSTER_TCDM_SIZE+offset)
-#define hbm_addr(offset)            ((uint64_t)ARCH_HBM_START_BASE+offset)
-#define hbm_west(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+offset)
-#define hbm_north(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_Y+offset)
-#define hbm_east(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*(ARCH_NUM_CLUSTER_Y+ARCH_NUM_CLUSTER_X)+offset)
-#define hbm_south(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*2*ARCH_NUM_CLUSTER_Y+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_X+offset)
+#define hbm_addr(offset)            ((uint64_t)ARCH_HBM_START_BASE+(uint64_t)offset)
+#define hbm_west(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+((uint64_t)nid)*(uint64_t)ARCH_HBM_NODE_ADDR_SPACE+(uint64_t)offset)
+#define hbm_north(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+((uint64_t)nid)*(uint64_t)ARCH_HBM_NODE_ADDR_SPACE+(uint64_t)ARCH_HBM_NODE_ADDR_SPACE*(uint64_t)ARCH_NUM_CLUSTER_Y+(uint64_t)offset)
+#define hbm_east(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+((uint64_t)nid)*(uint64_t)ARCH_HBM_NODE_ADDR_SPACE+(uint64_t)ARCH_HBM_NODE_ADDR_SPACE*((uint64_t)ARCH_NUM_CLUSTER_Y+(uint64_t)ARCH_NUM_CLUSTER_X)+(uint64_t)offset)
+#define hbm_south(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+((uint64_t)nid)*(uint64_t)ARCH_HBM_NODE_ADDR_SPACE+(uint64_t)ARCH_HBM_NODE_ADDR_SPACE*2*(uint64_t)ARCH_NUM_CLUSTER_Y+(uint64_t)ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_X+(uint64_t)offset)
 #define is_hbm_region(addr)         (addr >= ARCH_HBM_START_BASE)
 #define is_power_of_two(value)      (((value) & ((value) - 1)) == 0)
 
@@ -115,14 +115,41 @@ uint32_t flex_is_first_core(){
  * Desc: cluster-private heap allocator initialization
  */
 
-void flex_alloc_init(){
-    volatile uint32_t * heap_start      = (volatile uint32_t *) ARCH_CLUSTER_HEAP_BASE;
+extern char __l1_heap_start[];
+extern char __hbm_heap_start[];
+
+static inline void flex_alloc_init(){
+    uint32_t CID = flex_get_cluster_id();
+    // volatile uint32_t * heap_start      = (volatile uint32_t *) (ARCH_CLUSTER_HEAP_BASE + 0x1000);
+    volatile uint32_t * heap_start      = (volatile uint32_t *) __l1_heap_start;
     volatile uint32_t * heap_end        = (volatile uint32_t *) ARCH_CLUSTER_HEAP_END;
     volatile uint32_t   heap_size       = (uint32_t)heap_end - (uint32_t)heap_start;
     if (flex_is_first_core()){
         flex_cluster_alloc_init(flex_get_allocator_l1(), (void *)heap_start, heap_size);
     }
+
+    // HBM allocator
+    uint32_t hbm_nodes = 4; // bowwang: hardcoded for now
+    volatile uint32_t * hbm_heap_start      = (volatile uint32_t *) __hbm_heap_start;
+    volatile uint32_t * hbm_heap_end        = (volatile uint32_t *) (ARCH_HBM_START_BASE + (ARCH_HBM_NODE_ADDR_SPACE * hbm_nodes));
+    volatile uint32_t   hbm_heap_size       = (uint32_t)hbm_heap_end - (uint32_t)hbm_heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_hbm(), (void *)hbm_heap_start, hbm_heap_size);
+    }
+
+    // allocation init summary
+    if (CID==0 && flex_is_first_core()){
+        printf("[Alloc] >>> L1  allocator:    0x%p\n", &alloc_l1);
+        printf("[Alloc] >>> L1  first block:  0x%p\n", (&alloc_l1)->first_block);
+        printf("[Alloc] >>> L1  heap start:   0x%p, size: 0x%x\n\n", heap_start, heap_size);
+        printf("[Alloc] >>> HBM allocator:    0x%p\n", &alloc_hbm);
+        printf("[Alloc] >>> HBM first block:  0x%p\n", (&alloc_hbm)->first_block);
+        printf("[Alloc] >>> HBM heap start:   0x%p, size: 0x%x\n\n", hbm_heap_start, hbm_heap_size);
+    }
+
+    return;
 }
+
 
 /*******************
 *  Global Barrier  *

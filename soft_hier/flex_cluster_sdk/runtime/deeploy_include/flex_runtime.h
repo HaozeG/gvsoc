@@ -2,11 +2,31 @@
 #define _FLEX_RUNTIME_H_
 #include <stdint.h>
 #include "flex_cluster_arch.h"
-#include "flex_runtime_api.h"
+#include "flex_alloc.h"
+
+#define ARCH_NUM_CLUSTER            (ARCH_NUM_CLUSTER_X*ARCH_NUM_CLUSTER_Y)
+#define cluster_index(x,y)          ((y)*ARCH_NUM_CLUSTER_X+(x))
+#define local(offset)               (ARCH_CLUSTER_TCDM_BASE+offset)
+#define zomem(offset)               (ARCH_CLUSTER_ZOMEM_BASE+offset)
+#define remote_cid(cid,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cid*ARCH_CLUSTER_TCDM_SIZE+offset)
+#define remote_xy(x,y,offset)       (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(x,y)*ARCH_CLUSTER_TCDM_SIZE+offset)
+#define remote_pos(pos,offset)      (ARCH_CLUSTER_TCDM_REMOTE+cluster_index(pos.x,pos.y)*ARCH_CLUSTER_TCDM_SIZE+offset)
+#define hbm_addr(offset)            ((uint64_t)ARCH_HBM_START_BASE+offset)
+#define hbm_west(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+offset)
+#define hbm_north(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_Y+offset)
+#define hbm_east(nid,offset)        ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*(ARCH_NUM_CLUSTER_Y+ARCH_NUM_CLUSTER_X)+offset)
+#define hbm_south(nid,offset)       ((uint64_t)ARCH_HBM_START_BASE+(nid)*ARCH_HBM_NODE_ADDR_SPACE+ARCH_HBM_NODE_ADDR_SPACE*2*ARCH_NUM_CLUSTER_Y+ARCH_HBM_NODE_ADDR_SPACE*ARCH_NUM_CLUSTER_X+offset)
+#define is_hbm_region(addr)         (addr >= ARCH_HBM_START_BASE)
 
 /*******************
 * Cluster Position *
 *******************/
+
+typedef struct FlexPosition
+{
+    uint32_t x;
+    uint32_t y;
+}FlexPosition;
 
 FlexPosition get_pos(uint32_t cluster_id) {
     FlexPosition pos;
@@ -79,6 +99,54 @@ uint32_t flex_is_first_core(){
     return (hartid == 0);
 }
 
+/********************
+*  Data Allocation  *
+********************/
+
+// Back-adaptation for other config fills to pass CI
+#ifndef ARCH_CLUSTER_HEAP_BASE
+#define ARCH_CLUSTER_HEAP_BASE (0x00000000)
+#define ARCH_CLUSTER_HEAP_END  (0x00000000)
+#endif
+
+/*
+ * Desc: cluster-private heap allocator initialization
+ */
+
+extern char __l1_heap_start[];
+extern char __hbm_heap_start[];
+
+static inline void flex_alloc_init(){
+    uint32_t CID = flex_get_cluster_id();
+    // volatile uint32_t * heap_start      = (volatile uint32_t *) (ARCH_CLUSTER_HEAP_BASE + 0x1000);
+    volatile uint32_t * heap_start      = (volatile uint32_t *) __l1_heap_start;
+    volatile uint32_t * heap_end        = (volatile uint32_t *) ARCH_CLUSTER_HEAP_END;
+    volatile uint32_t   heap_size       = (uint32_t)heap_end - (uint32_t)heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_l1(), (void *)heap_start, heap_size);
+    }
+
+    // HBM allocator
+    uint32_t hbm_nodes = 4; // bowwang: hardcoded for now
+    volatile uint32_t * hbm_heap_start      = (volatile uint32_t *) __hbm_heap_start;
+    volatile uint32_t * hbm_heap_end        = (volatile uint32_t *) (ARCH_HBM_START_BASE + (ARCH_HBM_NODE_ADDR_SPACE * hbm_nodes));
+    volatile uint32_t   hbm_heap_size       = (uint32_t)hbm_heap_end - (uint32_t)hbm_heap_start;
+    if (flex_is_first_core()){
+        flex_cluster_alloc_init(flex_get_allocator_hbm(), (void *)hbm_heap_start, hbm_heap_size);
+    }
+
+    // allocation init summary
+    if (CID==0 && flex_is_first_core()){
+        printf("[Alloc] >>> L1  allocator:    0x%p\n", &alloc_l1);
+        printf("[Alloc] >>> L1  first block:  0x%p\n", (&alloc_l1)->first_block);
+        printf("[Alloc] >>> L1  heap start:   0x%p, size: 0x%x\n\n", heap_start, heap_size);
+        printf("[Alloc] >>> HBM allocator:    0x%p\n", &alloc_hbm);
+        printf("[Alloc] >>> HBM first block:  0x%p\n", (&alloc_hbm)->first_block);
+        printf("[Alloc] >>> HBM heap start:   0x%p, size: 0x%x\n\n", hbm_heap_start, hbm_heap_size);
+    }
+
+    return;
+}
 
 /*******************
 *  Global Barrier  *
@@ -128,6 +196,7 @@ void flex_intra_cluster_sync(){
 
 void flex_barrier_init(){
     volatile uint32_t * barrier      = (volatile uint32_t *) ARCH_SYNC_BASE;
+    volatile uint32_t * wakeup_reg   = (volatile uint32_t *) ARCH_SOC_REGISTER_WAKEUP;
     volatile uint32_t * cluster_reg  = (volatile uint32_t *) ARCH_CLUSTER_REG_BASE;
 
     if (flex_is_dm_core()){
@@ -135,7 +204,7 @@ void flex_barrier_init(){
         {
             // __atomic_store_n(barrier, 0, __ATOMIC_RELAXED);
             flex_reset_barrier(barrier);
-            flex_wakeup_all_clusters();
+            *wakeup_reg = flex_get_enable_value();
         }
         *cluster_reg = flex_get_enable_value();
     }
@@ -145,6 +214,7 @@ void flex_barrier_init(){
 
 void flex_global_barrier(){
     volatile uint32_t * barrier      = (volatile uint32_t *) ARCH_SYNC_BASE;
+    volatile uint32_t * wakeup_reg   = (volatile uint32_t *) ARCH_SOC_REGISTER_WAKEUP;
     volatile uint32_t * cluster_reg  = (volatile uint32_t *) ARCH_CLUSTER_REG_BASE;
 
     flex_intra_cluster_sync();
@@ -153,7 +223,7 @@ void flex_global_barrier(){
         flex_annotate_barrier(0);
         if ((flex_get_barrier_num_cluster() - flex_get_enable_value()) == flex_amo_fetch_add(barrier)) {
             flex_reset_barrier(barrier);
-            flex_wakeup_all_clusters();
+            *wakeup_reg = flex_get_enable_value();
         }
         *cluster_reg = flex_get_enable_value();
         flex_annotate_barrier(0);
@@ -189,7 +259,8 @@ void flex_barrier_xy_init(){
     FlexPosition        pos          = get_pos(flex_get_cluster_id());
     uint32_t            pos_x_middel = (ARCH_NUM_CLUSTER_X)/2;
     uint32_t            pos_y_middel = (ARCH_NUM_CLUSTER_Y)/2;
-    volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_SIZE)+16);
+    volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_INTERLEAVE)+16);
+    volatile uint32_t * wakeup_reg   = (volatile uint32_t *) ARCH_SOC_REGISTER_WAKEUP;
     volatile uint32_t * cluster_reg  = (volatile uint32_t *) ARCH_CLUSTER_REG_BASE;
 
     if (flex_is_dm_core()){
@@ -198,10 +269,10 @@ void flex_barrier_xy_init(){
             flex_reset_barrier(barrier_y);
             for (int i = 0; i < ARCH_NUM_CLUSTER_Y; ++i)
             {
-                volatile uint32_t * barrier_x = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,i)*ARCH_SYNC_SIZE)+8);
+                volatile uint32_t * barrier_x = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,i)*ARCH_SYNC_INTERLEAVE)+8);
                 flex_reset_barrier(barrier_x);
             }
-            flex_wakeup_all_clusters();
+            *wakeup_reg = flex_get_enable_value();
         }
         *cluster_reg = flex_get_enable_value();
     }
@@ -219,8 +290,9 @@ void flex_global_barrier_xy(){
         FlexPosition        pos          = get_pos(flex_get_cluster_id());
         uint32_t            pos_x_middel = (flex_get_barrier_num_cluster_x())/2;
         uint32_t            pos_y_middel = (flex_get_barrier_num_cluster_y())/2;
-        volatile uint32_t * barrier_x    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_SIZE)+8);
-        volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_SIZE)+16);
+        volatile uint32_t * barrier_x    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_INTERLEAVE)+8);
+        volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_INTERLEAVE)+16);
+        volatile uint32_t * wakeup_reg   = (volatile uint32_t *) ARCH_SOC_REGISTER_WAKEUP;
         volatile uint32_t * cluster_reg  = (volatile uint32_t *) ARCH_CLUSTER_REG_BASE;
 
         //First Barrier X
@@ -231,7 +303,7 @@ void flex_global_barrier_xy(){
             if ((flex_get_barrier_num_cluster_y() - flex_get_enable_value()) == flex_amo_fetch_add(barrier_y))
             {
                 flex_reset_barrier(barrier_y);
-                flex_wakeup_all_clusters();
+                *wakeup_reg = flex_get_enable_value();
             }
         }
         *cluster_reg = flex_get_enable_value();
@@ -252,10 +324,10 @@ void flex_global_barrier_xy_polling(){
         FlexPosition        pos          = get_pos(flex_get_cluster_id());
         uint32_t            pos_x_middel = (flex_get_barrier_num_cluster_x())/2;
         uint32_t            pos_y_middel = (flex_get_barrier_num_cluster_y())/2;
-        volatile uint32_t * barrier_x    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_SIZE)+8);
-        volatile uint32_t * barrier_ix   = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_SIZE)+12);
-        volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_SIZE)+16);
-        volatile uint32_t * barrier_iy   = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_SIZE)+20);
+        volatile uint32_t * barrier_x    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_INTERLEAVE)+8);
+        volatile uint32_t * barrier_ix   = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos.y       )*ARCH_SYNC_INTERLEAVE)+12);
+        volatile uint32_t * barrier_y    = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_INTERLEAVE)+16);
+        volatile uint32_t * barrier_iy   = (volatile uint32_t *) (ARCH_SYNC_BASE+(cluster_index(pos_x_middel,pos_y_middel)*ARCH_SYNC_INTERLEAVE)+20);
 
         // Remember previous iteration
         uint32_t prev_barrier_iter_x     = *barrier_ix;

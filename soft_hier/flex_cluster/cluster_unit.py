@@ -22,6 +22,7 @@ import gvsoc.systree
 from pulp.chips.flex_cluster.cluster_registers import ClusterRegisters
 from pulp.chips.flex_cluster.light_redmule import LightRedmule
 from pulp.chips.flex_cluster.hwpe_interleaver import HWPEInterleaver
+from pulp.chips.flex_cluster.transpose_engine import TransposeEngine
 from pulp.chips.flex_cluster.util_dumpper import UtilDumpper
 from pulp.snitch.snitch_cluster.dma_interleaver import DmaInterleaver
 from pulp.snitch.zero_mem import ZeroMem
@@ -79,6 +80,7 @@ class ClusterArch:
                         idma_outstand_txn,  idma_outstand_burst,
                         num_cluster_x,      num_cluster_y,
                         spatz_core_list,    spatz_num_vlsu,     spatz_num_fu,
+                        spatz_vlsu_bw,      spatz_vreg_gather_eff,
                         data_bandwidth,     auto_fetch=False,   multi_idma_enable=0):
 
         self.nb_core                = nb_core_per_cluster
@@ -97,6 +99,8 @@ class ClusterArch:
         self.spatz_core_list        = spatz_core_list
         self.spatz_num_vlsu         = spatz_num_vlsu
         self.spatz_num_fu           = spatz_num_fu
+        self.spatz_vlsu_bw          = spatz_vlsu_bw
+        self.spatz_vreg_gather_eff  = spatz_vreg_gather_eff
 
         #RedMule
         self.redmule_ce_height      = redmule_ce_height
@@ -200,10 +204,10 @@ class ClusterUnit(gvsoc.systree.Component):
         loader = utils.loader.loader.ElfLoader(self, 'loader', binary=binary)
 
         #Instruction memory
-        instr_mem = memory.Memory(self, 'instr_mem', size=arch.insn_area.size, atomics=True)
+        instr_mem = memory.Memory(self, 'instr_mem', size=arch.insn_area.size, atomics=True, width_log2=-1)
 
         #Instruction router
-        instr_router = router.Router(self, 'instr_router', bandwidth=8)
+        instr_router = router.Router(self, 'instr_router', bandwidth=8*arch.nb_core)
 
         # Main router
         wide_axi_goto_tcdm = router.Router(self, 'wide_axi_goto_tcdm')
@@ -223,11 +227,13 @@ class ClusterUnit(gvsoc.systree.Component):
         for core_id in range(0, arch.nb_core):
             cores.append(iss.Snitch(self, f'pe{core_id}', isa='rv32imfdva',
                 fetch_enable=arch.auto_fetch, boot_addr=boot_addr,
-                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu))
+                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu, spatz_vlsu_bw=arch.spatz_vlsu_bw,
+                spatz_vreg_gather_eff=arch.spatz_vreg_gather_eff))
 
             fp_cores.append(iss.Snitch_fp_ss(self, f'fp_ss{core_id}', isa='rv32imfdva',
                 fetch_enable=arch.auto_fetch, boot_addr=boot_addr,
-                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu))
+                core_id=core_id, htif=False, inc_spatz=(len(arch.spatz_core_list) > 0), spatz_num_vlsu=arch.spatz_num_vlsu, spatz_num_fpu=arch.spatz_num_fu, spatz_vlsu_bw=arch.spatz_vlsu_bw,
+                spatz_vreg_gather_eff=arch.spatz_vreg_gather_eff))
             if xfrep:
                 fpu_sequencers.append(Sequencer(self, f'fpu_sequencer{core_id}', latency=0))
 
@@ -251,9 +257,20 @@ class ClusterUnit(gvsoc.systree.Component):
         #data dumpper
         data_dumpper = UtilDumpper(self, 'data_dumpper', arch.cluster_id)
         data_dumpper_ctrl_base = arch.reg_area.base + arch.reg_area.size
-        data_dumpper_ctrl_size = 20
+        data_dumpper_ctrl_size = 64
         data_dumpper_input_base = arch.tcdm.area.base + arch.tcdm.area.size
         data_dumpper_input_size = arch.tcdm.area.size
+        ctrl_base_update = arch.reg_area.base + arch.reg_area.size + data_dumpper_ctrl_size
+
+
+        #Transpose Engine
+        transpose_engine = TransposeEngine(self, f'transpose_engine',
+                                    tcdm_bank_width     = arch.tcdm.bank_width,
+                                    tcdm_bank_number    = arch.tcdm.nb_tcdm_banks,
+                                    buffer_dim          = arch.tcdm.nb_tcdm_banks * arch.tcdm.bank_width)
+        transpose_engine_ctrl_base = ctrl_base_update
+        transpose_engine_ctrl_size = 64
+        ctrl_base_update += 64
 
         # Cluster DMA
         if arch.multi_idma_enable:
@@ -283,7 +300,8 @@ class ClusterUnit(gvsoc.systree.Component):
 
         #Binary loader
         loader.o_OUT(instr_router.i_INPUT())
-        loader.o_START(self.i_FETCHEN())
+        loader.o_START(cluster_registers.i_INST_PREHEAT_DONE())
+        self.o_HBM_PRELOAD_DONE(cluster_registers.i_HBM_PRELOAD_DONE())
 
         #Instruction router
         instr_router.o_MAP(narrow_axi.i_INPUT())
@@ -305,6 +323,9 @@ class ClusterUnit(gvsoc.systree.Component):
         #binding to data dumpper
         narrow_axi.o_MAP(data_dumpper.i_CTRL(), base=data_dumpper_ctrl_base, size=data_dumpper_ctrl_size, rm_base=True)
 
+        #binding to transpose engine
+        narrow_axi.o_MAP(transpose_engine.i_INPUT(), base=transpose_engine_ctrl_base, size=transpose_engine_ctrl_size, rm_base=True)
+
         #binding to redmule
         narrow_axi.o_MAP(redmule.i_INPUT(), base=arch.redmule_area.base, size=arch.redmule_area.size, rm_base=True)
 
@@ -319,12 +340,15 @@ class ClusterUnit(gvsoc.systree.Component):
         #RedMule to TCDM
         redmule.o_TCDM(tcdm.i_HWPE_INPUT())
 
+        #Transpose Engine to TCDM
+        transpose_engine.o_TCDM(tcdm.i_HWPE_INPUT())
+
         # Wire router for DMA and instruction caches
         self.o_WIDE_INPUT(wide_axi_goto_tcdm.i_INPUT())
         wide_axi_goto_tcdm.o_MAP(tcdm.i_BUS_INPUT())
         wide_axi_from_idma.o_MAP(self.i_WIDE_SOC())
         wide_axi_from_idma.o_MAP(zero_mem.i_INPUT(), base=arch.zomem_area.base, size=arch.zomem_area.size, rm_base=True)
-        
+
 
         # iDMA connection
         if arch.multi_idma_enable:
@@ -339,7 +363,7 @@ class ClusterUnit(gvsoc.systree.Component):
 
         # Cores
         for core_id in range(0, arch.nb_core):
-            self.__o_FETCHEN( cores[core_id].i_FETCHEN() )
+            cluster_registers.o_FETCH_START( cores[core_id].i_FETCHEN() )
 
         for core_id in range(0, arch.nb_core):
             cores[core_id].o_BARRIER_REQ(cluster_registers.i_BARRIER_ACK(core_id))
@@ -360,7 +384,7 @@ class ClusterUnit(gvsoc.systree.Component):
 
         for core_id in range(0, arch.nb_core):
             fp_cores[core_id].o_DATA( cores_ico[core_id].i_INPUT() )
-            self.__o_FETCHEN( fp_cores[core_id].i_FETCHEN() )
+            cluster_registers.o_FETCH_START( fp_cores[core_id].i_FETCHEN() )
 
             # SSR in fp subsystem datem mover <-> memory port
             self.bind(fp_cores[core_id], 'ssr_dm0', cores_ico[core_id], 'input')
@@ -406,12 +430,6 @@ class ClusterUnit(gvsoc.systree.Component):
             idma.o_AXI(wide_axi_from_idma.i_INPUT())
             pass
 
-    def i_FETCHEN(self) -> gvsoc.systree.SlaveItf:
-        return gvsoc.systree.SlaveItf(self, 'fetchen', signature='wire<bool>')
-
-    def __o_FETCHEN(self, itf: gvsoc.systree.SlaveItf):
-        self.itf_bind('fetchen', itf, signature='wire<bool>', composite_bind=True)
-
     def i_WIDE_INPUT(self) -> gvsoc.systree.SlaveItf:
         return gvsoc.systree.SlaveItf(self, 'wide_input', signature='io')
 
@@ -447,3 +465,9 @@ class ClusterUnit(gvsoc.systree.Component):
 
     def o_SYNC_INPUT(self, itf: gvsoc.systree.SlaveItf):
         self.itf_bind('sync_input', itf, signature='io', composite_bind=True)
+
+    def i_HBM_PRELOAD_DONE(self) -> gvsoc.systree.SlaveItf:
+        return gvsoc.systree.SlaveItf(self, 'hbm_preload_done', signature='wire<bool>')
+
+    def o_HBM_PRELOAD_DONE(self, itf: gvsoc.systree.SlaveItf):
+        self.itf_bind('hbm_preload_done', itf, signature='wire<bool>', composite_bind=True)

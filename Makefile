@@ -107,20 +107,13 @@ core/models/memory/dramsys_configs:
 
 build-toolchain: third_party/toolchain
 
-# third_party/toolchain:
-# 	mkdir -p third_party/toolchain
-# 	cd third_party/toolchain && \
-# 	wget https://github.com/pulp-platform/pulp-riscv-gnu-toolchain/releases/download/v1.0.16/v1.0.16-pulp-riscv-gcc-centos-7.tar.bz2 &&\
-# 	tar -xvjf v1.0.16-pulp-riscv-gcc-centos-7.tar.bz2 &&\
-# 	wget https://github.com/husterZC/gun_toolchain/releases/download/v2.0.0/toolchain.tar.xz &&\
-# 	tar -xvf toolchain.tar.xz
-
 third_party/toolchain:
 	mkdir -p third_party/toolchain
 	cd third_party/toolchain && \
+	wget https://github.com/pulp-platform/pulp-riscv-gnu-toolchain/releases/download/v1.0.16/v1.0.16-pulp-riscv-gcc-centos-7.tar.bz2 &&\
+	tar -xvjf v1.0.16-pulp-riscv-gcc-centos-7.tar.bz2 &&\
 	wget https://github.com/husterZC/gun_toolchain/releases/download/v2.0.0/toolchain.tar.xz &&\
-	tar -xvf toolchain.tar.xz &&\
-	rm -rf toolchain.tar.xz
+	tar -xvf toolchain.tar.xz
 
 third_party/gnu_toolchain:
 	mkdir -p third_party/gnu_toolchain
@@ -210,6 +203,19 @@ runv_simple:
 rund:
 	./install/bin/gvsoc --target=pulp.chips.flex_cluster.flex_cluster --binary sw_build/softhier.elf run $(preload_arg) --trace-level=6 --trace=/chip/cluster_4/pe0/insn
 
+run_spatz:
+	./install/bin/gvsoc --target=pulp.chips.flex_cluster.flex_cluster \
+		--binary sw_build/softhier.elf run $(preload_arg) \
+		--trace=/chip/cluster_0/pe0/insn \
+		--trace=spatz \
+		| tee sw_build/analyze_trace.txt; \
+	if [ -n "$(trace_name)" ]; then \
+		cp sw_build/analyze_trace.txt ./$(trace_name)_trace.txt; \
+		echo "Copied trace to ./$(trace_name)_trace.txt"; \
+	else \
+		echo "No trace_name specified. File kept as sw_build/analyze_trace.txt"; \
+	fi
+
 ######################################################################
 ## 				Make Targets for Trace Analyzer		 				##
 ######################################################################
@@ -221,3 +227,42 @@ endif
 pfto:
 	python soft_hier/flex_cluster_utilities/trace_perfetto/parse.py $(trace_file) sw_build/roi.json
 	python soft_hier/flex_cluster_utilities/trace_perfetto/visualize.py sw_build/roi.json -o sw_build/perfetto.json
+
+
+pfto_spatz:
+	./install/bin/gvsoc --target=pulp.chips.flex_cluster.flex_cluster \
+		--binary sw_build/softhier.elf run $(preload_arg) \
+		--trace-level=trace \
+		--trace="/chip/cluster_0/*" \
+		| tee $(trace_file); \
+	if [ -n "$(trace_name)" ]; then \
+		out_name=$(trace_name)_trace; \
+	else \
+		out_name=perfetto; \
+	fi; \
+	python soft_hier/flex_cluster_utilities/trace_perfetto/parse.py $(trace_file) sw_build/roi.json; \
+	python soft_hier/flex_cluster_utilities/trace_perfetto/visualize.py sw_build/roi.json -o ./$$out_name.json; \
+	echo "Generated ./$$out_name.json"
+
+clean_trace:
+	rm *_trace.json
+
+######################################################################
+## 				Make Targets for C2C Platform 						##
+######################################################################
+
+ccfg_file ?= $(realpath soft_hier/c2c_platform/c2c_platform_cfg.py)
+ifdef ccfg
+	ccfg_file = $(realpath $(ccfg))
+endif
+
+c2c-cfg:
+	rm -rf pulp/pulp/c2c_platform
+	cp -rf soft_hier/c2c_platform pulp/pulp/c2c_platform
+	cp ${ccfg_file} pulp/pulp/c2c_platform/c2c_platform_cfg.py
+
+c2c-hw: c2c-cfg
+	make TARGETS=pulp.c2c_platform.c2c_platform all
+
+c2c-run:
+	./install/bin/gvsoc --target=pulp.c2c_platform.c2c_platform run --trace=ctrl --trace=endpoint
