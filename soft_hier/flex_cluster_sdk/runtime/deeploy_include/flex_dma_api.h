@@ -17,11 +17,9 @@ typedef enum {
 void flex_dma_async_1d(uint64_t dst_addr, uint64_t src_addr, size_t transfer_size);
 void flex_dma_async_broadcast(uint64_t dst_offset, uint64_t src_offset, size_t transfer_size,
                               uint16_t row_mask, uint16_t col_mask);
-void flex_dma_async_reduction(uint64_t dst_offset, uint64_t src_offset, size_t transfer_size,
-                              collective_compute_format_t fmt, uint16_t row_mask,
-                              uint16_t col_mask);
+void flex_dma_async_reduction(uint64_t dst_offset, uint64_t src_offset, size_t transfer_size, collective_compute_format_t fmt, uint16_t row_mask, uint16_t col_mask);
 void flex_dma_async_wait_all(void);
-
+void flex_dma_async_2d(uint64_t dst_addr, uint64_t src_addr, size_t transfer_size, size_t dst_stride, size_t src_stride, size_t repeat);
 void flex_dma_sync_2d(uint64_t dst_addr, uint64_t src_addr, size_t transfer_size,
                       size_t dst_stride, size_t src_stride, size_t repeat);
 

@@ -1,10 +1,10 @@
-#ifndef _FLEX_LIBfp16_H_
-#define _FLEX_LIBfp16_H_
+#ifndef _FLEX_LIBFP16_H_
+#define _FLEX_LIBFP16_H_
 
 #include "flex_types.h"
 #include "flex_runtime_api.h"
 
-// Convert float to fp16 (half-precision)
+// Convert float to FP16 (half-precision)
 fp16 float_to_fp16(float value) {
     FloatBits floatBits;
     floatBits.f = value;
@@ -23,7 +23,7 @@ fp16 float_to_fp16(float value) {
     return sign | (exponent << 10) | mantissa;
 }
 
-// Convert fp16 to float
+// Convert FP16 to float
 float fp16_to_float(fp16 value) {
     FloatBits floatBits;
     floatBits.parts.sign = (value >> 15) & 0x1;
@@ -33,7 +33,7 @@ float fp16_to_float(fp16 value) {
     return floatBits.f;
 }
 
-// Fused multiply-add for fp16
+// Fused multiply-add for FP16
 fp16 fp16_fma(fp16 a, fp16 b, fp16 c) {
     float fa = fp16_to_float(a);
     float fb = fp16_to_float(b);

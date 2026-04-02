@@ -15,68 +15,7 @@ Dynamic memory allocation based on linked list of free memory blocks
 #include <stdint.h>
 #include "flex_printf.h"
 #include "flex_cluster_arch.h"
-
-/*
-Desc: Free-memory-block indicator
-@var: (unit32_t)               size -- capacity of the free memory block (in bytes)
-@var: (struct alloc_block_s *) next -- pointer to the next free memory block
-*/
-typedef struct alloc_block_s {
-  uint32_t size;
-  struct alloc_block_s *next;
-} alloc_block_t;
-
-/*
-Desc: Allocator data structure
-@var: (alloc_block_t *) first block -- pointer to the first free memory block 
-*/
-typedef struct {
-  alloc_block_t *first_block;
-} alloc_t;
-
-
-/********************
-*  Initialization   *
-********************/
-
-// Initialize the first free-memory-block indicator, and set up the pointer in the allocator
-void flex_cluster_alloc_init(alloc_t *alloc, void *base, const uint32_t size);
-
-/***************
-*  Allocation  *
-***************/
-
-// Memory alllocation with programmer-specified allocator
-void *domain_malloc(alloc_t *alloc, const uint32_t size);
-
-// Memory allocation with default l1 heap allocator
-void *flex_l1_malloc(const uint32_t size);
-void *flex_hbm_malloc(const uint32_t size);
-
-
-/******************
-*  De-allocation  *
-******************/
-
-// De-allocation with programmer-specified allocator
-void domain_free(alloc_t *alloc, void *const ptr);
-
-// De-allocation with default l1 heap allocator
-void flex_l1_free(void *const ptr);
-void flex_hbm_free(void *const ptr);
-
-/*********************
-*  Helper functions  *
-*********************/
-
-// Return the address of the default l1 heap allocator
-alloc_t *flex_get_allocator_l1();
-alloc_t *flex_get_allocator_hbm();
-
-// [debug] print all free-memory-blocks in l1 heap
-void flex_dump_heap();
-
-
+#include "flex_runtime_api.h"
 
 /********************
 *  Implementations  *

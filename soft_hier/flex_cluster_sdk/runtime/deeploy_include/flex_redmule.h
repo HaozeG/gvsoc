@@ -1,7 +1,16 @@
 #ifndef _FLEX_REDMULE_H_
 #define _FLEX_REDMULE_H_
 #include "flex_cluster_arch.h"
-#include "flex_redmule_api.h"
+
+typedef enum {
+    REDMULE_NONE_16,
+    REDMULE_UINT_16,
+    REDMULE_INT_16,
+    REDMULE_FP_16,
+    REDMULE_UINT_8,
+    REDMULE_INT_8,
+    REDMULE_FP_8
+} redmule_compute_format_t;
 
 
 void flex_redmule_config(uint16_t m_size, uint16_t n_size, uint16_t k_size){
