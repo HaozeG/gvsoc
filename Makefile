@@ -73,7 +73,7 @@ third_party/systemc_install/lib64/libsystemc.so:
 	git clone $(SYSTEMC_GIT_URL) && \
 	cd systemc && git fetch --tags && git checkout $(SYSTEMC_VERSION) && \
 	mkdir build && cd build && \
-	$(CMAKE) -DCMAKE_CXX_STANDARD=17 -DCMAKE_INSTALL_PREFIX=$(SYSTEMC_INSTALL_DIR) -DCMAKE_INSTALL_LIBDIR=lib64 .. && \
+	$(CMAKE) -DCMAKE_CXX_STANDARD=17 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 -DCMAKE_INSTALL_PREFIX=$(SYSTEMC_INSTALL_DIR) -DCMAKE_INSTALL_LIBDIR=lib64 .. && \
 	make && make install
 
 build-dramsys: build-systemc third_party/DRAMSys/libDRAMSys_Simulator.so
@@ -99,6 +99,8 @@ third_party/DRAMSys/libDRAMSys_Simulator.so:
 		cp DRAMSys/build/lib/libDRAMSys_Simulator.so ../../third_party/DRAMSys/ ; \
 		make clean; \
     fi
+
+.PHONY: build-configs core/models/memory/dramsys_configs
 
 build-configs: core/models/memory/dramsys_configs
 
@@ -246,6 +248,11 @@ pfto_spatz:
 
 clean_trace:
 	rm *_trace.json
+
+
+pfto_deeploy:
+	python soft_hier/flex_cluster_utilities/trace_perfetto/parse.py $(trace_file) gvsoc_.json
+	python soft_hier/flex_cluster_utilities/trace_perfetto/visualize.py gvsoc_.json -o perfetto_$(trace_file).json
 
 ######################################################################
 ## 				Make Targets for C2C Platform 						##

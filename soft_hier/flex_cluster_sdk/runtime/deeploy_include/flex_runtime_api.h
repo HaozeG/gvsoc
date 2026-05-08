@@ -175,4 +175,9 @@ void flex_dump_heap();
 
 void flex_alloc_init();
 
+/* from flex_transpose_engine.h */
+void flex_transpose_engine_config(uint32_t M, uint32_t N, uint32_t src_addr, uint32_t dst_addr, uint32_t elem_size);
+uint32_t flex_transpose_engine_trigger();
+uint32_t flex_transpose_engine_wait();
+
 #endif

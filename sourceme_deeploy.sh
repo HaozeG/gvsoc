@@ -16,6 +16,14 @@ export PYTHONPATH=$SDK_HOME/soft_hier/flex_cluster_utilities:$PYTHONPATH
 ##############################################################################
 ##              Envirment Parameters for DRAMSys Integration                ##
 ##############################################################################
+HOMEBREW_GCC_LIB=/home/linuxbrew/.linuxbrew/lib/gcc/current
+if [ -d "$HOMEBREW_GCC_LIB" ]; then
+    case ":$LD_LIBRARY_PATH:" in
+        *":$HOMEBREW_GCC_LIB:"*) ;;
+        *) export LD_LIBRARY_PATH=$HOMEBREW_GCC_LIB:$LD_LIBRARY_PATH ;;
+    esac
+fi
+
 export SYSTEMC_HOME=$SDK_HOME/third_party/systemc_install
 export LD_LIBRARY_PATH=${SYSTEMC_HOME}/lib64:$LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=$SDK_HOME/third_party/DRAMSys:$LD_LIBRARY_PATH
