@@ -96,13 +96,13 @@ gemm-sw:
 
 gemm-pre: gemm-clean gemm-cfg gemm-pld gemm-hs
 
-gemm-run: gemm-pre
+gemm-run:
 	@echo "SoftHier simulation for GEMM ..."
-	pld=${CUR_DIR}/sw/SummaGEMM/preload.elf make -C ${SH_DIR} run
+	make -C ${SH_DIR} run
 
-gemm-run%: gemm-pre
+gemm-run%:
 	@echo "SoftHier simulation for GEMM ..."
-	pld=${CUR_DIR}/sw/SummaGEMM/preload.elf make -C ${SH_DIR} run$*
+	make -C ${SH_DIR} run$*
 
 gemm-clean:
 	@echo "clean up intermidiate files generated for GEMM ..."

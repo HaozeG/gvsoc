@@ -19,7 +19,17 @@ PHDRS
 
 /* Memory section should be provided in a separate, platform-specific */
 /* file. It should define at least the L1 and L3 memory blocks. */
-INCLUDE memory.ld
+MEMORY
+{
+    L1_SHARE  (rwxa) : ORIGIN = 0x0000000000000000, LENGTH = 0x0000000000000200
+    L1  (rwxa) : ORIGIN = 0x0000000000000200, LENGTH = 0x000000000005FE00
+    L3  (rwxa) : ORIGIN = 0x0000000080000000, LENGTH = 0x0000000000010000
+    HBM (rwxa) : ORIGIN = 0x00000000C0000000, LENGTH = 0x0000000300000000
+    HBM_WEST  (rwxa) : ORIGIN = 0x00000000C0000000, LENGTH = 0x0000000300000000
+    HBM_NORTH (rwxa) : ORIGIN = 0x00000003C0000000, LENGTH = 0x0000000300000000
+    HBM_EAST  (rwxa) : ORIGIN = 0x00000006C0000000, LENGTH = 0x0000000300000000
+    HBM_SOUTH (rwxa) : ORIGIN = 0x00000009C0000000, LENGTH = 0x0000000300000000
+}
 
 
 SECTIONS
@@ -168,7 +178,7 @@ SECTIONS
     *(.hbm)
     *(.hbm_west*)
     . = ALIGN(1024);
-    __hbm_heap_start = .;
+    PROVIDE(__hbm_heap_start = .);
   } >HBM_WEST :hbm_west
 
   .hbm_north :
