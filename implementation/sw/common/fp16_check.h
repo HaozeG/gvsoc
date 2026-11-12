@@ -73,7 +73,7 @@ uint32_t fp16_check_rows(
                     if (diff > 6.103515625e-05f)
                     {
 #ifdef FP16_CHECK_VERBOSE
-                        if (bad < 8) printf("[check] c%d row %d col %d: out 0x%x gold 0x%x\n",
+                        if (bad < 8 && flex_get_cluster_id() == 0) printf("[check] c%d row %d col %d: out 0x%x gold 0x%x\n",
                                             flex_get_cluster_id(), r, i, o[i], g[i]);
 #endif
                         bad++;
