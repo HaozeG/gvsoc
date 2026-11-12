@@ -42,16 +42,31 @@ def lnorm_inputs(m, n, seed=0):
     return x.astype(h), gamma.astype(h), beta.astype(h)
 
 
+def fp32_ordered_sum(v):
+    """Sum along axis 1 in fp32, one rounding per addition, in index order:
+    what vfredusum.vs does in the GVSoC model. Valid while a row fits in one
+    strip (n <= VLMAX at e16/m4, 4096 on the default arch), so that each fp32
+    lane holds exactly one element before the reduction."""
+    acc = np.zeros(v.shape[0], dtype=np.float32)
+    for j in range(v.shape[1]):
+        acc = (acc + v[:, j]).astype(np.float32)
+    return acc
+
+
 def lnorm_fp16_replay(x, gamma, beta, eps):
     h, f = np.float16, np.float32
     n = x.shape[1]
-    xd = x.astype(np.float64)
-    mean = (xd.sum(axis=1) / n).astype(f)                     # fp32 mean
-    m = mean.astype(h)                                         # fp16, nearest even
-    s2 = ((xd - m.astype(np.float64)[:, None]) ** 2).sum(axis=1)
-    delta = mean - m.astype(f)
-    var = np.maximum((s2 / n).astype(f) - delta * delta, f(0))
-    r = (f(1) / np.sqrt(var + f(eps))).astype(h)
+    xf = x.astype(f)                                          # vfwadd: exact widening
+    mean = (fp32_ordered_sum(xf) / f(n)).astype(f)
+    m = mean.astype(h)                                        # nearest even
+    w = (xf - m.astype(f)[:, None]).astype(f)                 # vfwsub.vf
+    s2 = fp32_ordered_sum((w * w).astype(f))                  # vfmacc on zero lanes, reduce
+    delta = (mean - m.astype(f)).astype(f)
+    s2n = (s2 / f(n)).astype(f)
+    var = (s2n.astype(np.float64) - delta.astype(np.float64) ** 2).astype(f)   # fnmsub.s
+    var = np.maximum(var, f(0))
+    rstd = (f(1) / np.sqrt((var + f(eps)).astype(f))).astype(f)
+    r = rstd.astype(h)
     m2 = delta.astype(h)
     with np.errstate(all="ignore"):
         y = (x - m[:, None]).astype(h)

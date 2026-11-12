@@ -17,7 +17,7 @@ pfto:
 	@echo "Compiling SoftHier HW & SW for attention ..."
 	make -C ${SH_DIR} pfto
 
-kernel-clean: attn-clean gemm-clean norm-clean acti-clean
+kernel-clean: attn-clean gemm-clean norm-clean lnorm-clean acti-clean
 clean: kernel-clean
 
 #####################
@@ -152,6 +152,51 @@ norm-run%: norm-pre
 norm-clean:
 	@echo "clean up intermidiate files generated for Normolization ..."
 	rm -f ${CUR_DIR}/sw/RMSNorm/include/norm.h ${CUR_DIR}/sw/RMSNorm/preload.elf ${CUR_DIR}/sw/RMSNorm/preload.dump ${CUR_DIR}/sw/RMSNorm/include/preload.h ${SH_DIR}/dump_*
+
+
+
+######################
+#     LayerNorm      #
+######################
+
+LNORM_FILE ?= ${CUR_DIR}/config/kernels/lnorm.py
+ifdef lnorm
+	LNORM_FILE = $(realpath $(lnorm))
+endif
+
+lnorm-cfg:
+	@echo "Generating configuration files for LayerNorm ..."
+	python3 ${CUR_DIR}/scripts/kernels/lnorm_config.py ${LNORM_FILE} ${CUR_DIR}/sw/LayerNorm/include/lnorm.h
+
+lnorm-pld:
+	@echo "Generating preload files for LayerNorm ..."
+	python3 ${CUR_DIR}/scripts/kernels/lnorm_preload.py \
+			${CUR_DIR}/sw/LayerNorm/preload.elf \
+			${CUR_DIR}/sw/LayerNorm/include/preload.h \
+			${ARCH_FILE} \
+			${LNORM_FILE}
+
+lnorm-hs:
+	@echo "Compiling SoftHier HW & SW for LayerNorm ..."
+	cfg=${ARCH_FILE} app=${CUR_DIR}/sw/LayerNorm make -C ${SH_DIR} hs
+
+lnorm-sw:
+	@echo "Compiling SoftHier HW & SW for LayerNorm ..."
+	cfg=${ARCH_FILE} app=${CUR_DIR}/sw/LayerNorm make -C ${SH_DIR} sw
+
+lnorm-pre: lnorm-clean lnorm-cfg lnorm-pld lnorm-hs
+
+lnorm-run: lnorm-pre
+	@echo "SoftHier simulation for LayerNorm ..."
+	pld=${CUR_DIR}/sw/LayerNorm/preload.elf make -C ${SH_DIR} run
+
+lnorm-run%: lnorm-pre
+	@echo "SoftHier simulation for LayerNorm ..."
+	pld=${CUR_DIR}/sw/LayerNorm/preload.elf make -C ${SH_DIR} run$*
+
+lnorm-clean:
+	@echo "clean up intermidiate files generated for LayerNorm ..."
+	rm -f ${CUR_DIR}/sw/LayerNorm/include/lnorm.h ${CUR_DIR}/sw/LayerNorm/preload.elf ${CUR_DIR}/sw/LayerNorm/preload.dump ${CUR_DIR}/sw/LayerNorm/include/preload.h ${SH_DIR}/dump_*
 
 
 

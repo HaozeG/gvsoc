@@ -19,6 +19,13 @@
  * 4. y = (((x - m) - m2) * r) * gamma + beta in fp16, with
  *    m2 = fp16(mean - m) and r = fp16(1/sqrt(var + eps)).
  * fp16 accumulation would overflow once the row RMS exceeds about 9 (n = 768).
+ *
+ * On the default arch VLEN = 16384 bits, so a row of up to 4096 elements is
+ * one strip and every strip loop below runs once.
+ *
+ * Timing caveat (GVSoC ISS): vfwadd.wv, vfwsub.vf, vmv.x.s, vmv.s.x and
+ * vmv.v.i have no timing model and cost zero cycles, so the measured time
+ * is optimistic.
  */
 
 #include "flex_runtime.h"

@@ -8,8 +8,9 @@
 #include "LayerNorm.h"
 #include "../common/fp16_check.h"
 
-// The device sums in fp32 in an order the host does not replay, so the fp16
-// mean or scale of a row can round differently: allow 2 ULP.
+// The preload replays the device's fp32 summation order exactly while a row
+// fits in one strip (n <= 4096 on the default arch); outputs are then
+// bit-exact. 2 ULP covers longer rows, where the order differs.
 #ifndef LNORM_CHECK_TOL_ULP
 #define LNORM_CHECK_TOL_ULP 2
 #endif
