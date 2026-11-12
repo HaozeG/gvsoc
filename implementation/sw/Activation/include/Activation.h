@@ -186,18 +186,28 @@ inline void vector_lib_sigmoid(
     uint32_t vlen)
 {
     uint32_t avl;
+    /* Constants are static (initialized data): with a stack local and
+     * "r"(&var), GCC may drop the store the fld depends on.
+     * The 1 comes from a scalar, not from e/e: e/e is inf/inf = NaN once
+     * e^-x overflows (x < about -11 in fp16).
+     * The vector of ones is (-x) - (-x) + 1, exact for finite x;
+     * vfmv.v.f did not produce 1.0 in the GVSoC model. */
 #if defined(ACTI_FP16)
-    acti_data_t minus_one = 0xbc00;
+    static const uint64_t c_mone = 0xffffffffffffbc00ull; /* -1.0 */
+    static const uint64_t c_one  = 0xffffffffffff3c00ull; /*  1.0 */
 #elif defined(ACTI_FP8)
-    acti_data_t minus_one = 0xbc;
+    static const uint64_t c_mone = 0xffffffffffffffbcull;
+    static const uint64_t c_one  = 0xffffffffffffff3cull;
 #endif
-    asm volatile("fld fa6, (%0)" ::"r"(&minus_one));
+    asm volatile("fld fa6, %0" :: "m"(c_mone) : "fa6");
+    asm volatile("fld fa4, %0" :: "m"(c_one) : "fa4");
     while(vlen > 0){
         asm volatile("vsetvli %0, %1, e" XSTR(DATA_TYPE_WIDTH) ", m8, ta, ma" : "=r"(avl) : "r"(vlen));
         asm volatile("vle" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(i_addr)); // x
         asm volatile("vfmul.vf v8, v8, fa6"); // -x
         asm volatile(".word %0\n"::"i"(0x32041857)) /*vfexp.vv v16, v8*/; // e^-x
-        asm volatile("vfdiv.vv v0, v16, v16"); // 1
+        asm volatile("vfsub.vv v0, v8, v8"); // 0 (x finite)
+        asm volatile("vfadd.vf v0, v0, fa4"); // 1
         asm volatile("vfadd.vv v16, v16, v0"); // 1 + e^-x
         asm volatile("vfdiv.vv v8, v0, v16"); // 1/(1 + e^-x)
         asm volatile("vse" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(o_addr));
@@ -214,8 +224,8 @@ inline void vector_lib_relu(
     uint32_t vlen)
 {
     uint32_t avl;
-    acti_data_t zero = 0;
-    asm volatile("fld fa5, (%0)" ::"r"(&zero));
+    static const uint64_t c_zero = 0xffffffffffff0000ull; /* +0.0, NaN-boxed */
+    asm volatile("fld fa5, %0" :: "m"(c_zero) : "fa5");
     while(vlen > 0){
         asm volatile("vsetvli %0, %1, e" XSTR(DATA_TYPE_WIDTH) ", m8, ta, ma" : "=r"(avl) : "r"(vlen));
         asm volatile("vle" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(i_addr));
@@ -234,19 +244,22 @@ inline void vector_lib_silu(
     uint32_t vlen)
 {
     uint32_t avl;
+    /* static constants and the 1 from a scalar: see vector_lib_sigmoid */
 #if defined(ACTI_FP16)
-    acti_data_t minus_one = 0xbc00;
+    static const uint64_t c_mone = 0xffffffffffffbc00ull; /* -1.0 */
+    static const uint64_t c_one  = 0xffffffffffff3c00ull; /*  1.0 */
 #elif defined(ACTI_FP8)
-    acti_data_t minus_one = 0xbc;
+    static const uint64_t c_mone = 0xffffffffffffffbcull;
+    static const uint64_t c_one  = 0xffffffffffffff3cull;
 #endif
-    asm volatile("fld fa6, (%0)" ::"r"(&minus_one));
+    asm volatile("fld fa6, %0" :: "m"(c_mone) : "fa6");
+    asm volatile("fld fa4, %0" :: "m"(c_one) : "fa4");
     while(vlen > 0){
         asm volatile("vsetvli %0, %1, e" XSTR(DATA_TYPE_WIDTH) ", m8, ta, ma" : "=r"(avl) : "r"(vlen));
         asm volatile("vle" XSTR(DATA_TYPE_WIDTH) ".v v24,  (%0)" ::"r"(i_addr)); // x
         asm volatile("vfmul.vf v8, v24, fa6"); // -x
         asm volatile(".word %0\n"::"i"(0x32041857)) /*vfexp.vv v16, v8*/; // e^-x
-        asm volatile("vfdiv.vv v0, v16, v16"); // 1
-        asm volatile("vfadd.vv v16, v16, v0"); // 1 + e^-x
+        asm volatile("vfadd.vf v16, v16, fa4"); // 1 + e^-x
         asm volatile("vfdiv.vv v8, v24, v16"); // x/(1 + e^-x)
         asm volatile("vse" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(o_addr));
         vlen -= avl;
@@ -282,9 +295,9 @@ inline void vector_lib_gelu(
     static const uint64_t c_one   = 0xffffffffffffff3cull;
     static const uint64_t c_mtwok = 0xffffffffffffffbeull;
 #endif
-    asm volatile("fld fa3, (%0)" ::"r"(&c_cube));
-    asm volatile("fld fa4, (%0)" ::"r"(&c_one));
-    asm volatile("fld fa7, (%0)" ::"r"(&c_mtwok));
+    asm volatile("fld fa3, %0" :: "m"(c_cube) : "fa3");
+    asm volatile("fld fa4, %0" :: "m"(c_one) : "fa4");
+    asm volatile("fld fa7, %0" :: "m"(c_mtwok) : "fa7");
     while(vlen > 0){
         asm volatile("vsetvli %0, %1, e" XSTR(DATA_TYPE_WIDTH) ", m8, ta, ma" : "=r"(avl) : "r"(vlen));
         asm volatile("vle" XSTR(DATA_TYPE_WIDTH) ".v v24,  (%0)" ::"r"(i_addr)); // x

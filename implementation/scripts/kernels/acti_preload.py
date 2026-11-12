@@ -65,11 +65,11 @@ def acti_fp16_replay(algo, x):
         if algo == "relu":
             return np.maximum(x, h(0))
         if algo in ("sigmoid", "silu"):
+            one = h(1.0)
             mx = (x * h(-1.0)).astype(h)
             e = np.exp(mx.astype(np.float64)).astype(h)
-            one = (e / e).astype(h)
             den = (e + one).astype(h)
-            num = one if algo == "sigmoid" else x
+            num = np.full_like(x, one) if algo == "sigmoid" else x
             return (num / den).astype(h)
         if algo == "gelu":
             c, one, m2k = h(0.044715), h(1.0), h(-1.5957691)
