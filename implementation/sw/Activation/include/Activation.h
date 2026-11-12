@@ -88,6 +88,7 @@ ActivationInfo ActivationAnaylze(
 inline void vector_lib_sigmoid(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
 inline void vector_lib_relu(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
 inline void vector_lib_silu(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
+inline void vector_lib_gelu(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
 inline void vector_lib_gate(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
 inline void vector_lib_bias(uint32_t i_addr, uint32_t o_addr, uint32_t vlen);
 
@@ -139,6 +140,11 @@ void ActivationRun(ActivationInfo * info)
             vector_lib_silu(
                 info->L1SP_I/*i_addr*/, 
                 info->L1SP_I/*o_addr*/, 
+                info->token_embedded_length / ARCH_SPATZ_ATTACED_CORES/*vlen*/);
+#elif defined(ACTI_ALGO_GELU)
+            vector_lib_gelu(
+                info->L1SP_I/*i_addr*/,
+                info->L1SP_I/*o_addr*/,
                 info->token_embedded_length / ARCH_SPATZ_ATTACED_CORES/*vlen*/);
 #endif
             if (info->gate_enable)
@@ -242,6 +248,54 @@ inline void vector_lib_silu(
         asm volatile("vfdiv.vv v0, v16, v16"); // 1
         asm volatile("vfadd.vv v16, v16, v0"); // 1 + e^-x
         asm volatile("vfdiv.vv v8, v24, v16"); // x/(1 + e^-x)
+        asm volatile("vse" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(o_addr));
+        vlen -= avl;
+        i_addr += DATA_TYPE_BYTE*avl;
+        o_addr += DATA_TYPE_BYTE*avl;
+    }
+}
+
+/*GELU, tanh form (gelu_pytorch_tanh, as used by the SigLIP vision encoder)
+ *   gelu(x) = 0.5 x (1 + tanh(sqrt(2/pi) (x + 0.044715 x^3)))
+ *           = x / (1 + exp(-2 sqrt(2/pi) x (1 + 0.044715 x^2)))
+ * All steps in the data type (fp16), one rounding per instruction.
+ * The constant 1 comes from a scalar register, not from e/e, so that exp
+ * overflow (x < about -4) gives x/inf = -0 and underflow gives x/1 = x.
+ * x (1 + c x^2) overflows only when x^2 does (|x| > 256), and then still
+ * gives the right limit (inf or -0).
+ * vfexp is the custom encoding 0x32041857: vd = v16, vs1 = v8.
+ * Scalars are NaN-boxed 64-bit values so that fld leaves a valid fp16
+ * in the low bits whatever the register file does with the upper bits.
+ */
+inline void vector_lib_gelu(
+    uint32_t i_addr,
+    uint32_t o_addr,
+    uint32_t vlen)
+{
+    uint32_t avl;
+#if defined(ACTI_FP16)
+    static const uint64_t c_cube  = 0xffffffffffff29b9ull; /* 0.044715   */
+    static const uint64_t c_one   = 0xffffffffffff3c00ull; /* 1.0        */
+    static const uint64_t c_mtwok = 0xffffffffffffbe62ull; /* -1.5957691 = -2 sqrt(2/pi) */
+#elif defined(ACTI_FP8)
+    static const uint64_t c_cube  = 0xffffffffffffff29ull;
+    static const uint64_t c_one   = 0xffffffffffffff3cull;
+    static const uint64_t c_mtwok = 0xffffffffffffffbeull;
+#endif
+    asm volatile("fld fa3, (%0)" ::"r"(&c_cube));
+    asm volatile("fld fa4, (%0)" ::"r"(&c_one));
+    asm volatile("fld fa7, (%0)" ::"r"(&c_mtwok));
+    while(vlen > 0){
+        asm volatile("vsetvli %0, %1, e" XSTR(DATA_TYPE_WIDTH) ", m8, ta, ma" : "=r"(avl) : "r"(vlen));
+        asm volatile("vle" XSTR(DATA_TYPE_WIDTH) ".v v24,  (%0)" ::"r"(i_addr)); // x
+        asm volatile("vfmul.vv v8, v24, v24");   // x^2
+        asm volatile("vfmul.vf v8, v8, fa3");    // c x^2
+        asm volatile("vfadd.vf v8, v8, fa4");    // 1 + c x^2
+        asm volatile("vfmul.vv v8, v8, v24");    // u = x (1 + c x^2)
+        asm volatile("vfmul.vf v8, v8, fa7");    // -2k u
+        asm volatile(".word %0\n"::"i"(0x32041857)) /*vfexp.vv v16, v8*/; // e^(-2k u)
+        asm volatile("vfadd.vf v16, v16, fa4");  // 1 + e^(-2k u)
+        asm volatile("vfdiv.vv v8, v24, v16");   // x / (1 + e^(-2k u))
         asm volatile("vse" XSTR(DATA_TYPE_WIDTH) ".v v8,  (%0)" ::"r"(o_addr));
         vlen -= avl;
         i_addr += DATA_TYPE_BYTE*avl;

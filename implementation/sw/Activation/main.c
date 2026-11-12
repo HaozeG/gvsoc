@@ -14,6 +14,11 @@
 #include "acti.h"
 #include "preload.h"
 #include "Activation.h"
+#include "../common/fp16_check.h"
+
+#ifndef ACTI_CHECK_TOL_ULP
+#define ACTI_CHECK_TOL_ULP 1
+#endif
 
 int main()
 {
@@ -41,6 +46,12 @@ int main()
     ActivationRun(&info);
     if (flex_get_core_id() == 0 && flex_get_cluster_id() == 0) flex_timer_end();
     flex_global_barrier_xy();
+
+    //check output against the preloaded fp16 replay golden (outside the timed region)
+#if defined(ACTI_FP16)
+    eoc_val = fp16_check_rows(O_EADDR, O_GADDR, ACTI_M_SIZE, ACTI_N_SIZE, ACTI_CHECK_TOL_ULP, info.L1_Area);
+    flex_global_barrier_xy();
+#endif
 
     /**************************************/
     /*  Program Execution Region -- Stop  */

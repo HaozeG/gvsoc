@@ -21,7 +21,7 @@ class Activation:
     def __init__(self):
 
         #Activation parameters
-        ## Algorithm support with : sigmoid, relu, silu, none
+        ## Algorithm support with : sigmoid, relu, silu, gelu (tanh form), none
         self.dtype                   = 'fp16'
         self.algo                    = 'silu'
         self.m_size                  = 512
