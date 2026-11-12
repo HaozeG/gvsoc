@@ -2,6 +2,7 @@
 **/gemm.h
 **/norm.h
 **/lnorm.h
+**/elt.h
 **/rope.h
 **/acti.h
 **/moeg.h

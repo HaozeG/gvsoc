@@ -17,7 +17,7 @@ pfto:
 	@echo "Compiling SoftHier HW & SW for attention ..."
 	make -C ${SH_DIR} pfto
 
-kernel-clean: attn-clean gemm-clean norm-clean lnorm-clean acti-clean
+kernel-clean: attn-clean gemm-clean norm-clean lnorm-clean acti-clean elt-clean
 clean: kernel-clean
 
 #####################
@@ -197,6 +197,51 @@ lnorm-run%: lnorm-pre
 lnorm-clean:
 	@echo "clean up intermidiate files generated for LayerNorm ..."
 	rm -f ${CUR_DIR}/sw/LayerNorm/include/lnorm.h ${CUR_DIR}/sw/LayerNorm/preload.elf ${CUR_DIR}/sw/LayerNorm/preload.dump ${CUR_DIR}/sw/LayerNorm/include/preload.h ${SH_DIR}/dump_*
+
+
+
+###################
+#     Eltwise     #
+###################
+
+ELT_FILE ?= ${CUR_DIR}/config/kernels/elt.py
+ifdef elt
+	ELT_FILE = $(realpath $(elt))
+endif
+
+elt-cfg:
+	@echo "Generating configuration files for Eltwise ..."
+	python3 ${CUR_DIR}/scripts/kernels/elt_config.py ${ELT_FILE} ${CUR_DIR}/sw/Eltwise/include/elt.h
+
+elt-pld:
+	@echo "Generating preload files for Eltwise ..."
+	python3 ${CUR_DIR}/scripts/kernels/elt_preload.py \
+			${CUR_DIR}/sw/Eltwise/preload.elf \
+			${CUR_DIR}/sw/Eltwise/include/preload.h \
+			${ARCH_FILE} \
+			${ELT_FILE}
+
+elt-hs:
+	@echo "Compiling SoftHier HW & SW for Eltwise ..."
+	cfg=${ARCH_FILE} app=${CUR_DIR}/sw/Eltwise make -C ${SH_DIR} hs
+
+elt-sw:
+	@echo "Compiling SoftHier HW & SW for Eltwise ..."
+	cfg=${ARCH_FILE} app=${CUR_DIR}/sw/Eltwise make -C ${SH_DIR} sw
+
+elt-pre: elt-clean elt-cfg elt-pld elt-hs
+
+elt-run: elt-pre
+	@echo "SoftHier simulation for Eltwise ..."
+	pld=${CUR_DIR}/sw/Eltwise/preload.elf make -C ${SH_DIR} run
+
+elt-run%: elt-pre
+	@echo "SoftHier simulation for Eltwise ..."
+	pld=${CUR_DIR}/sw/Eltwise/preload.elf make -C ${SH_DIR} run$*
+
+elt-clean:
+	@echo "clean up intermidiate files generated for Eltwise ..."
+	rm -f ${CUR_DIR}/sw/Eltwise/include/elt.h ${CUR_DIR}/sw/Eltwise/preload.elf ${CUR_DIR}/sw/Eltwise/preload.dump ${CUR_DIR}/sw/Eltwise/include/preload.h ${SH_DIR}/dump_*
 
 
 
